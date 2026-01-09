@@ -100,10 +100,12 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setTitle("Member Joined")
-      .setDescription(
-        `**User:** ${member.user.tag}\n**ID:** ${member.id}\n${invitedByLine}${inviteCodeLine}`
-      )
+      .setDescription(`**User:** ${member.user.tag}\n**ID:** ${member.id}`)
       .setThumbnail(member.user.displayAvatarURL({ size: 128 }))
+      .setAuthor({
+        name: member.guild.name,
+        iconURL: member.guild.iconURL({ size: 128 }) || undefined,
+      })
       .setTimestamp(new Date());
 
     await sendToGuildLog(client, guild.id, { embeds: [embed] });

@@ -74,6 +74,7 @@ module.exports = {
         let dmStatus = "✅ DM sent to user.";
         try {
           const dmEmbed = baseEmbed("⚠️ You Have Been Warned")
+            .setThumbnail(interaction.guild.iconURL({ size: 128 }))
             .setDescription(
               `You have received a warning in **${escapeMarkdown(interaction.guild.name)}**.`
             )
@@ -111,6 +112,7 @@ module.exports = {
 
         
         const embed = baseEmbed("Warning Issued")
+          .setThumbnail(interaction.guild.iconURL({ size: 128 }))
           .setDescription(
             `**User:** ${user.tag} (ID: ${user.id})\n` +
               `**Warning ID:** ${entry.id}`
@@ -159,11 +161,33 @@ module.exports = {
           `🧹 Removed warning \`${id}\` for <@${removed.userId}>.`
         );
 
+        let dmStatus = "✅ DM sent to user.";
+          try {
+            const u = await client.users.fetch(removed.userId);
+
+            const dmEmbed = baseEmbed("✅ Warning Removed")
+              .setThumbnail(interaction.guild.iconURL({ size: 128 }))
+              .setDescription(
+                `A warning has been removed in **${escapeMarkdown(interaction.guild.name)}**.`
+              )
+              .addFields(
+                { name: "Removed By", value: `${interaction.user.tag}`, inline: true },
+                { name: "Warning ID", value: `\`${id}\``, inline: true }
+              )
+              .setFooter({ text: "If you have questions, contact the server staff." });
+
+            await u.send({ embeds: [dmEmbed] });
+          } catch {
+            dmStatus = "⚠️ Could not DM user (DMs closed or blocked).";
+          }
+
         const embed = baseEmbed("Warning Removed")
+          .setThumbnail(interaction.guild.iconURL({ size: 128 }))
           .setDescription(
             `**User:** <@${removed.userId}> (ID: ${removed.userId})\n` +
               `**Warning ID:** ${id}`
-          );
+          )
+          .addFields({ name: "User DM", value: dmStatus, inline: true });
         setActor(embed, interaction.user);
 
         await sendToGuildLog(client, interaction.guildId, { embeds: [embed] });
