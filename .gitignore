@@ -1,0 +1,13 @@
+# dependencies
+node_modules
+
+# env files
+.env
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# your local/private folders
+Logo/
+Private/
