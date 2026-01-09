@@ -9,7 +9,7 @@ module.exports = {
       `📦 Loaded commands: ${[...client.commands.keys()].join(", ") || "(none)"}`
     );
 
-    // Warm invite + vanity caches for join tracking
+    // Warm invite + vanity caches so "invited by" works on the very next join
     client.inviteCache = new Map();
     client.vanityUsesCache = new Map();
 
@@ -18,7 +18,7 @@ module.exports = {
         const invites = await guild.invites.fetch();
         client.inviteCache.set(guild.id, invites);
       } catch {
-        // Missing Manage Server or invites unavailable
+        // Missing Manage Server permission or invites unavailable
         client.inviteCache.set(guild.id, null);
       }
 
@@ -31,5 +31,7 @@ module.exports = {
         // No vanity URL or no permission
       }
     }
+
+    console.log("✅ Invite cache warmed.");
   },
 };

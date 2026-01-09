@@ -91,7 +91,7 @@ module.exports = {
     await ensureInviteCache(client, guild);
 
     // Discord sometimes updates invite uses slightly after the memberAdd event
-    await sleep(1200);
+    await sleep(2000);
 
     let invitedByLine = "**Invited by:** Unknown";
     let inviteCodeLine = "";

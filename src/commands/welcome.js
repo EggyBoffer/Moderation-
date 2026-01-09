@@ -18,6 +18,7 @@ function renderWelcomeMessage(template, member) {
     ) || null;
 
   return String(template || DEFAULT_WELCOME)
+    .replaceAll("\\n", "\n") 
     .replaceAll("{user}", `<@${member.id}>`)
     .replaceAll("{username}", member.user.username)
     .replaceAll("{server}", member.guild.name)
