@@ -1,6 +1,7 @@
 const { Events, EmbedBuilder } = require("discord.js");
 const { sendToGuildLog } = require("../handlers/logChannel");
 const { getGuildConfig } = require("../storage/guildConfig");
+const { updateCountsForGuild } = require("../handlers/updateCounts");
 
 const DEFAULT_WELCOME =
   "👋 Welcome {user} to **{server}**! You are member #{memberCount}. Please read {rules}.";
@@ -12,6 +13,7 @@ function renderWelcomeMessage(template, member) {
     ) || null;
 
   return String(template || DEFAULT_WELCOME)
+    .replaceAll("\\n", "\n") // allow admins to type \n in slash command text
     .replaceAll("{user}", `<@${member.id}>`)
     .replaceAll("{username}", member.user.username)
     .replaceAll("{server}", member.guild.name)
@@ -166,5 +168,8 @@ module.exports = {
       .setTimestamp(new Date());
 
     await sendToGuildLog(client, guild.id, { embeds: [embed] });
+
+    // Update member/user/bot count channels (if configured)
+    updateCountsForGuild(guild).catch(() => null);
   },
 };

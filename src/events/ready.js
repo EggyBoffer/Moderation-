@@ -1,4 +1,5 @@
 const { Events } = require("discord.js");
+const { updateCountsForGuild } = require("../handlers/updateCounts");
 
 module.exports = {
   name: Events.ClientReady,
@@ -30,6 +31,9 @@ module.exports = {
       } catch {
         // No vanity URL or no permission
       }
+
+      // Update member/user/bot count channels (if configured)
+      updateCountsForGuild(guild).catch(() => null);
     }
 
     console.log("✅ Invite cache warmed.");

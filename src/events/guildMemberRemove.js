@@ -1,5 +1,6 @@
 const { Events, EmbedBuilder } = require("discord.js");
 const { sendToGuildLog } = require("../handlers/logChannel");
+const { updateCountsForGuild } = require("../handlers/updateCounts");
 
 module.exports = {
   name: Events.GuildMemberRemove,
@@ -15,5 +16,8 @@ module.exports = {
       .setTimestamp(new Date());
 
     await sendToGuildLog(client, member.guild.id, { embeds: [embed] });
+
+    // Update member/user/bot count channels (if configured)
+    updateCountsForGuild(member.guild).catch(() => null);
   },
 };
