@@ -2,30 +2,34 @@ const {
   SlashCommandBuilder,
   PermissionFlagsBits,
   EmbedBuilder,
+  ChannelType,
 } = require("discord.js");
 
 const { sendToGuildLog } = require("../handlers/logChannel");
+const { isMod } = require("../handlers/permissions");
 
-// Hard safety limits
-const MAX_BULK = 100;          // Discord bulk delete limit
-const MAX_SCAN = 1000;         // max messages to scan when filtering (anti-abuse + performance)
-
-// Discord bulk delete cannot remove messages older than 14 days
+const MAX_BULK = 100;          // Discord bulk delete max per call
+const MAX_SCAN = 1000;         // Max messages to scan when filters are used (safety/perf)
 const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
+
+function isYoungerThan14Days(msg) {
+  const ts = msg.createdTimestamp ?? 0;
+  return Date.now() - ts < FOURTEEN_DAYS_MS;
+}
+
+function clip(str, max = 200) {
+  const s = String(str ?? "").trim();
+  return s.length > max ? s.slice(0, max) + "…" : s;
+}
 
 function summarizeCriteria({ amount, user, role, contains, botsOnly, attachmentsOnly }) {
   const parts = [`Amount: ${amount}`];
   if (user) parts.push(`User: ${user.tag}`);
   if (role) parts.push(`Role: @${role.name}`);
   if (contains) parts.push(`Contains: "${contains}"`);
-  if (botsOnly) parts.push(`Bots only`);
-  if (attachmentsOnly) parts.push(`Attachments only`);
+  if (botsOnly) parts.push("Bots only");
+  if (attachmentsOnly) parts.push("Attachments only");
   return parts.join(" • ");
-}
-
-function isYoungerThan14Days(msg) {
-  const ts = msg.createdTimestamp ?? 0;
-  return Date.now() - ts < FOURTEEN_DAYS_MS;
 }
 
 module.exports = {
@@ -73,10 +77,10 @@ module.exports = {
     .addStringOption((opt) =>
       opt
         .setName("reason")
-        .setDescription("Reason shown in logs")
+        .setDescription("Reason (logged)")
         .setRequired(false)
     )
-    // Permission gating at command level (Discord UI will show it as admin/mod-only)
+    // Shows in UI as restricted; we STILL enforce our own mod-role check + channel perms
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
   /**
@@ -89,54 +93,76 @@ module.exports = {
         return interaction.reply({ content: "Use this command in a server.", ephemeral: true });
       }
 
+      const channel = interaction.channel;
+      if (!channel || !channel.isTextBased()) {
+        return interaction.reply({ content: "This command must be used in a text channel.", ephemeral: true });
+      }
+
+      // Optional: restrict to typical text/announcement channels only
+      // (Threads are also text-based; if you want threads purgable, remove this)
+      if (
+        channel.type !== ChannelType.GuildText &&
+        channel.type !== ChannelType.GuildAnnouncement
+      ) {
+        return interaction.reply({
+          content: "Use this command in a normal text channel.",
+          ephemeral: true,
+        });
+      }
+
       const amount = interaction.options.getInteger("amount", true);
       const user = interaction.options.getUser("user", false);
       const role = interaction.options.getRole("role", false);
       const containsRaw = interaction.options.getString("contains", false);
       const botsOnly = interaction.options.getBoolean("bots_only", false) ?? false;
       const attachmentsOnly = interaction.options.getBoolean("attachments_only", false) ?? false;
-      const reason = interaction.options.getString("reason", false) ?? "";
+      const reason = (interaction.options.getString("reason", false) ?? "").trim();
 
-      const contains = containsRaw ? containsRaw.toLowerCase() : null;
+      const contains = containsRaw ? containsRaw.toLowerCase().trim() : null;
 
-      // Permissions: user + bot must have Manage Messages
-      const me = interaction.guild.members.me;
-      const member = interaction.member;
+      const member = interaction.member; // GuildMember
+      const botMember = interaction.guild.members.me;
 
-      if (!member.permissions.has(PermissionFlagsBits.ManageMessages)) {
-        return interaction.reply({ content: "You need **Manage Messages** to do that.", ephemeral: true });
-      }
-
-      if (!me?.permissions.has(PermissionFlagsBits.ManageMessages)) {
+      // 1) Mod-role gate (server policy)
+      if (!isMod(member, interaction.guildId)) {
         return interaction.reply({
-          content: "I need the **Manage Messages** permission in this server/channel to purge.",
+          content: "You are not allowed to use this command (mod role required).",
           ephemeral: true,
         });
       }
 
-      const channel = interaction.channel;
-      if (!channel || !channel.isTextBased()) {
-        return interaction.reply({ content: "This command must be used in a text channel.", ephemeral: true });
+      // 2) Channel-specific permission check (user)
+      const userPerms = channel.permissionsFor(member);
+      if (!userPerms || !userPerms.has(PermissionFlagsBits.ManageMessages)) {
+        return interaction.reply({
+          content: "You do not have permission to manage messages in this channel.",
+          ephemeral: true,
+        });
       }
 
-      // Defer so we don’t hit the 3-second interaction timeout
+      // 3) Channel-specific permission check (bot)
+      const botPerms = channel.permissionsFor(botMember);
+      if (!botPerms || !botPerms.has(PermissionFlagsBits.ManageMessages)) {
+        return interaction.reply({
+          content: "I do not have permission to manage messages in this channel.",
+          ephemeral: true,
+        });
+      }
+
       await interaction.deferReply({ ephemeral: true });
 
-      const hasFilters =
-        !!user || !!role || !!contains || botsOnly || attachmentsOnly;
+      const hasFilters = !!user || !!role || !!contains || botsOnly || attachmentsOnly;
 
       let deletedCount = 0;
       let scanned = 0;
 
-      // Fast path: no filters -> just delete the last N messages
       if (!hasFilters) {
-        const res = await channel.bulkDelete(amount, true); // true filters out >14-day messages
+        // Fast path: delete last N messages (Discord will skip >14 day ones)
+        const res = await channel.bulkDelete(amount, true);
         deletedCount = res.size;
-
       } else {
-        // Filtered path: scan recent messages until we collect enough matches
+        // Filtered path: scan messages until we collect enough matches
         const matches = [];
-
         let lastId = null;
 
         while (matches.length < amount && scanned < MAX_SCAN) {
@@ -153,30 +179,30 @@ module.exports = {
           for (const msg of batch.values()) {
             if (matches.length >= amount) break;
 
-            // Skip pinned messages (safer default)
+            // Safer default: don't purge pinned messages
             if (msg.pinned) continue;
 
-            // Bulk delete limitation: older than 14 days won't be deleted, so skip them here
+            // Discord bulk delete limitation
             if (!isYoungerThan14Days(msg)) continue;
 
-            // Filter: bots
+            // bots_only
             if (botsOnly && !msg.author?.bot) continue;
 
-            // Filter: attachments
+            // attachments_only
             if (attachmentsOnly && (!msg.attachments || msg.attachments.size === 0)) continue;
 
-            // Filter: contains text
+            // contains
             if (contains) {
               const content = (msg.content ?? "").toLowerCase();
               if (!content.includes(contains)) continue;
             }
 
-            // Filter: user
+            // user
             if (user && msg.author?.id !== user.id) continue;
 
-            // Filter: role (requires guild member lookup)
+            // role
             if (role) {
-              const m = msg.member; // may be null for some edge cases
+              const m = msg.member;
               if (!m || !m.roles.cache.has(role.id)) continue;
             }
 
@@ -186,26 +212,34 @@ module.exports = {
 
         if (matches.length === 0) {
           return interaction.editReply(
-            `No matching messages found (scanned ${scanned} messages).`
+            `No matching messages found.\n` +
+            `Scanned **${scanned}** messages.\n\n` +
+            `Note: messages older than 14 days cannot be bulk deleted.`
           );
         }
 
-        // Perform deletion
         const res = await channel.bulkDelete(matches, true);
         deletedCount = res.size;
       }
 
-      // Reply to the invoker
-      const criteria = summarizeCriteria({ amount, user, role, contains, botsOnly, attachmentsOnly });
+      const criteria = summarizeCriteria({
+        amount,
+        user,
+        role,
+        contains: containsRaw,
+        botsOnly,
+        attachmentsOnly,
+      });
+
       await interaction.editReply(
         `✅ Purge complete.\n` +
         `• Deleted: **${deletedCount}** message(s)\n` +
         `• ${hasFilters ? `Scanned: **${scanned}**` : "Fast purge"}\n` +
         `• Criteria: ${criteria}\n\n` +
-        `Note: Messages older than 14 days cannot be bulk deleted by Discord.`
+        `Note: messages older than 14 days cannot be bulk deleted.`
       );
 
-      // Log it (embed)
+      // Log it
       const embed = new EmbedBuilder()
         .setTitle("Purge Executed")
         .setDescription(
@@ -216,12 +250,11 @@ module.exports = {
         )
         .setTimestamp(new Date());
 
-      if (reason.trim()) {
-        embed.addFields({ name: "Reason", value: reason.slice(0, 1024) });
+      if (reason) {
+        embed.addFields({ name: "Reason", value: clip(reason, 1024) });
       }
 
       await sendToGuildLog(client, interaction.guildId, { embeds: [embed] });
-
     } catch (err) {
       console.error("❌ purge command error:", err);
       if (interaction.deferred || interaction.replied) {
