@@ -1,39 +1,52 @@
-const { Events } = require("discord.js");
+const { Events, EmbedBuilder } = require("discord.js");
 const { sendToGuildLog } = require("../handlers/logChannel");
+const { clip } = require("../handlers/text");
 
 module.exports = {
-  name: Events.MessageUpdate,
-  async execute(client, oldMessage, newMessage) {
+  name: Events.MessageDelete,
+  async execute(client, message) {
     try {
-      // Ignore DMs
-      if (!newMessage.guild) return;
+      // Use IDs directly (more reliable than message.guild on deletes)
+      const guildId = message.guildId;
+      const channelId = message.channelId;
 
-      // Ignore bots
-      if (newMessage.author?.bot) return;
+      if (!guildId || !channelId) return;
 
-      // Try to fetch partials
-      if (oldMessage.partial) {
-        try { oldMessage = await oldMessage.fetch(); } catch {}
+      // Try to fetch full message (often fails on delete — that's normal)
+      if (message.partial) {
+        try {
+          message = await message.fetch();
+        } catch {}
       }
-      if (newMessage.partial) {
-        try { newMessage = await newMessage.fetch(); } catch {}
-      }
 
-      const before = (oldMessage.content ?? "").trim();
-      const after = (newMessage.content ?? "").trim();
+      // Ignore bot messages if we can detect them
+      if (message.author?.bot) return;
 
-      // Ignore non-content edits
-      if (before === after) return;
+      const authorTag = message.author?.tag ?? "Unknown author";
+      const authorId = message.author?.id ?? "unknown";
+      const content = (message.content ?? "").trim();
 
-      const clip = (s) => (s.length > 500 ? s.slice(0, 500) + "…" : s);
+      const embed = new EmbedBuilder()
+        .setTitle("Message Deleted")
+        .setDescription(
+          `**User:** ${authorTag}\n` +
+          `**User ID:** ${authorId}\n` +
+          `**Channel:** <#${channelId}>`
+        )
+        .addFields({
+          name: "Content",
+          value: clip(content || "*no text content (uncached or partial delete)*"),
+          inline: false,
+        })
+        .setTimestamp(new Date());
 
-      await sendToGuildLog(client, newMessage.guild.id, {
-        content:
-          `🗑️ **Message deleted** by **${authorTag}** (ID: ${authorId}) in <#${channelId}>\n` +
-          `**Content:** ${clip(content) || "*no text content*"}`
-      });
+      // Avatar if available
+      const avatar = message.author?.displayAvatarURL?.({ size: 128 });
+      if (avatar) embed.setThumbnail(avatar);
+
+      await sendToGuildLog(client, guildId, { embeds: [embed] });
     } catch (err) {
-      console.error("❌ messageUpdate error:", err);
+      console.error("❌ messageDelete embed log error:", err);
     }
   },
 };
