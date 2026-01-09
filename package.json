@@ -8,7 +8,8 @@
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "deploy:commands": "node src/deploy-commands.js",
-    "deploy:commands:global": "node src/deploy-commands-global.js"
+    "deploy:commands:global": "node src/deploy-commands-global.js",
+    "clear:commands:guild": "node src/clear-commands-guild.js"
   },
   "dependencies": {
     "discord.js": "^14.22.1",
