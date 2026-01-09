@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
+const { SlashCommandBuilder, PermissionFlagsBits, escapeMarkdown } = require("discord.js");
 
 const { replyEphemeral, deferEphemeral } = require("../handlers/interactionReply");
 const { sendToGuildLog } = require("../handlers/logChannel");
@@ -70,17 +70,55 @@ module.exports = {
 
         const entry = addWarn(interaction.guildId, user.id, interaction.user.id, reason);
 
+        
+        let dmStatus = "✅ DM sent to user.";
+        try {
+          const dmEmbed = baseEmbed("⚠️ You Have Been Warned")
+            .setDescription(
+              `You have received a warning in **${escapeMarkdown(interaction.guild.name)}**.`
+            )
+            .addFields(
+              {
+                name: "Reason",
+                value: clip(entry.reason, 1024),
+              },
+              {
+                name: "Warned By",
+                value: `${interaction.user.tag}`,
+                inline: true,
+              },
+              {
+                name: "Warning ID",
+                value: `\`${entry.id}\``,
+                inline: true,
+              }
+            )
+            .setFooter({
+              text: "Please review the server rules. Repeated warnings may lead to further moderation action.",
+            });
+
+          await user.send({ embeds: [dmEmbed] });
+        } catch {
+          dmStatus = "⚠️ Could not DM user (DMs closed or blocked).";
+        }
+
         await interaction.editReply(
-          `⚠️ Warned **${user.tag}**\n**ID:** \`${entry.id}\`\n**Reason:** ${clip(entry.reason, 1000)}`
+          `⚠️ Warned **${user.tag}**\n` +
+            `**ID:** \`${entry.id}\`\n` +
+            `**Reason:** ${clip(entry.reason, 1000)}\n\n` +
+            `${dmStatus}`
         );
 
-        // Log to moderation log channel
+        
         const embed = baseEmbed("Warning Issued")
           .setDescription(
             `**User:** ${user.tag} (ID: ${user.id})\n` +
               `**Warning ID:** ${entry.id}`
           )
-          .addFields({ name: "Reason", value: clip(entry.reason, 1024) });
+          .addFields(
+            { name: "Reason", value: clip(entry.reason, 1024) },
+            { name: "User DM", value: dmStatus, inline: true }
+          );
 
         setActor(embed, interaction.user);
         await sendToGuildLog(client, interaction.guildId, { embeds: [embed] });
@@ -95,7 +133,7 @@ module.exports = {
           return replyEphemeral(interaction, `✅ **${user.tag}** has no warnings.`);
         }
 
-        // newest first, cap output a bit
+        
         const sorted = warns.slice().sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0));
         const show = sorted.slice(0, 10);
 
