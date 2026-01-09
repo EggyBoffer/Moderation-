@@ -1,5 +1,23 @@
 const { Events, EmbedBuilder } = require("discord.js");
 const { sendToGuildLog } = require("../handlers/logChannel");
+const { getGuildConfig } = require("../storage/guildConfig");
+
+const DEFAULT_WELCOME =
+  "👋 Welcome {user} to **{server}**! You are member #{memberCount}. Please read {rules}.";
+
+function renderWelcomeMessage(template, member) {
+  const rulesChannel =
+    member.guild.channels.cache.find(
+      (c) => c?.name === "rules" && c?.isTextBased?.()
+    ) || null;
+
+  return String(template || DEFAULT_WELCOME)
+    .replaceAll("{user}", `<@${member.id}>`)
+    .replaceAll("{username}", member.user.username)
+    .replaceAll("{server}", member.guild.name)
+    .replaceAll("{memberCount}", String(member.guild.memberCount))
+    .replaceAll("{rules}", rulesChannel ? `<#${rulesChannel.id}>` : "the rules");
+}
 
 // Invite cache lives on the client so it's shared across events/modules
 // client.inviteCache: Map<guildId, Collection<code, invite>>
@@ -20,7 +38,9 @@ async function ensureInviteCache(client, guild) {
 
   try {
     const vanity = await guild.fetchVanityData();
-    if (typeof vanity?.uses === "number") client.vanityUsesCache.set(guild.id, vanity.uses);
+    if (typeof vanity?.uses === "number") {
+      client.vanityUsesCache.set(guild.id, vanity.uses);
+    }
   } catch {
     // Vanity not enabled or no perms
   }
@@ -34,6 +54,38 @@ module.exports = {
   name: Events.GuildMemberAdd,
   async execute(client, member) {
     const guild = member.guild;
+
+    // Welcome message (if configured)
+    try {
+      const cfg = getGuildConfig(guild.id);
+      const channelId = cfg?.welcomeChannelId;
+
+      if (channelId) {
+        const channel =
+          guild.channels.cache.get(channelId) ||
+          (await guild.channels.fetch(channelId).catch(() => null));
+
+        if (channel?.isTextBased?.()) {
+          const template = cfg?.welcomeMessage || DEFAULT_WELCOME;
+          const rendered = renderWelcomeMessage(template, member);
+
+          const welcomeEmbed = new EmbedBuilder()
+            .setTitle("Welcome!")
+            .setDescription(rendered)
+            .setColor(0x57F287) // Discord-ish green
+            .setThumbnail(member.user.displayAvatarURL({ size: 128 }))
+            .setAuthor({
+              name: guild.name,
+              iconURL: guild.iconURL({ size: 128 }) || undefined,
+            })
+            .setTimestamp(new Date());
+
+          await channel.send({ embeds: [welcomeEmbed] });
+        }
+      }
+    } catch (err) {
+      console.error("❌ Welcome message failed:", err);
+    }
 
     // Ensure we have *some* baseline cache
     await ensureInviteCache(client, guild);
@@ -100,11 +152,16 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setTitle("Member Joined")
-      .setDescription(`**User:** ${member.user.tag}\n**ID:** ${member.id}`)
+      .setDescription(
+        `**User:** ${member.user.tag}\n` +
+          `**ID:** ${member.id}\n` +
+          `${invitedByLine}${inviteCodeLine}`
+      )
+      .setColor(0x57F287) // green for joins
       .setThumbnail(member.user.displayAvatarURL({ size: 128 }))
       .setAuthor({
-        name: member.guild.name,
-        iconURL: member.guild.iconURL({ size: 128 }) || undefined,
+        name: guild.name,
+        iconURL: guild.iconURL({ size: 128 }) || undefined,
       })
       .setTimestamp(new Date());
 

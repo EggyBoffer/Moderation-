@@ -124,22 +124,22 @@ module.exports = {
       const member = interaction.member; // GuildMember
       const botMember = interaction.guild.members.me;
 
-      // 1) Mod-role gate (server policy)
+      
       if (!isMod(member, interaction.guildId)) {
         return replyEphemeral(
-            interaction, "Use this command in a server."
+            interaction, "Sorry, you're not a moderator of this server... Skill issue!"
         );
       }
 
-      // 2) Channel-specific permission check (user)
+     
       const userPerms = channel.permissionsFor(member);
       if (!userPerms || !userPerms.has(PermissionFlagsBits.ManageMessages)) {
         return replyEphemeral(
-          interaction, "You do not have permission to manage messages in this channel."
+          interaction, "Sorry, you don't manage this channel!"
         );
       }
 
-      // 3) Channel-specific permission check (bot)
+      
       const botPerms = channel.permissionsFor(botMember);
       if (!botPerms || !botPerms.has(PermissionFlagsBits.ManageMessages)) {
         return replyEphemeral(
@@ -239,7 +239,7 @@ module.exports = {
 
       // Log it
       const embed = new EmbedBuilder()
-        .setTitle("Purge Executed")
+        .setTitle("Bulk Purge Used!")
         .setDescription(
           `**Moderator:** ${interaction.user.tag} (ID: ${interaction.user.id})\n` +
           `**Channel:** <#${interaction.channelId}>\n` +
@@ -256,10 +256,10 @@ module.exports = {
     } catch (err) {
       console.error("❌ purge command error:", err);
       if (interaction.deferred || interaction.replied) {
-        await interaction.editReply("Something went wrong running purge.");
+        await interaction.editReply("Something happened and this isn't possible right now!");
       } else {
         await replyEphemeral(
-             interaction, "Something went wrong running purge." 
+             interaction, "Something happened and this isn't possible right now!" 
             );
       }
     }
