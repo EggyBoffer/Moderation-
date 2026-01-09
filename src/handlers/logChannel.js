@@ -3,7 +3,7 @@ const { getGuildConfig } = require("../storage/guildConfig");
 async function sendToGuildLog(client, guildId, payload) {
   const cfg = getGuildConfig(guildId);
   const channelId = cfg.logChannelId;
-  if (!channelId) return; // no log channel set for this guild
+  if (!channelId) return;
 
   const channel =
     client.channels.cache.get(channelId) ||
@@ -11,8 +11,14 @@ async function sendToGuildLog(client, guildId, payload) {
 
   if (!channel || !channel.isTextBased?.()) return;
 
+  // Force-disable all pings from log messages
+  const safePayload =
+    typeof payload === "string"
+      ? { content: payload, allowedMentions: { parse: [] } }
+      : { ...payload, allowedMentions: { parse: [] } };
+
   try {
-    await channel.send(payload);
+    await channel.send(safePayload);
   } catch (err) {
     console.error("❌ Failed to send log message:", err);
   }

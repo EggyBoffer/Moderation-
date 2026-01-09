@@ -29,10 +29,10 @@ module.exports = {
 
       await sendToGuildLog(client, newMessage.guild.id, {
         content:
-          `✏️ **Message edited** by ${newMessage.author.tag} (<@${newMessage.author.id}>) in <#${newMessage.channel.id}>\n` +
-          `**Before:** ${clip(before) || "*empty*"}\n` +
-          `**After:** ${clip(after) || "*empty*"}\n` +
-          (newMessage.url ? `🔗 ${newMessage.url}` : ""),
+        `✏️ **Message edited** by **${newMessage.author.tag}** (ID: ${newMessage.author.id}) in <#${newMessage.channel.id}>\n` +
+        `**Before:** ${clip(before) || "*empty*"}\n` +
+        `**After:** ${clip(after) || "*empty*"}\n` +
+        (newMessage.url ? `🔗 ${newMessage.url}` : ""),
       });
     } catch (err) {
       console.error("❌ messageUpdate error:", err);

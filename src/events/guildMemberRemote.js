@@ -7,7 +7,7 @@ module.exports = {
     const tag = member.user?.tag ?? `UnknownUser(${member.id})`;
 
     await sendToGuildLog(client, member.guild.id, {
-      content: `🚪 **Member left:** ${tag} (<@${member.id}>)`,
+      content: `🚪 **Member left:** ${tag} (ID: ${member.id})`,
     });
   },
 };
