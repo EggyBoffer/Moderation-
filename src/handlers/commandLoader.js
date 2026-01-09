@@ -1,10 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-/**
- * Loads command modules from src/commands and returns a Collection-friendly Map.
- * Each command must export: { data, execute }
- */
+
 function loadCommands(commandsDirPath) {
   const commands = new Map();
 
