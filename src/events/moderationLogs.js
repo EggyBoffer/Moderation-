@@ -5,13 +5,21 @@ const { clip } = require("../handlers/text");
 
 async function findAuditEntry(guild, type, predicate) {
   try {
-    const audits = await guild.fetchAuditLogs({ limit: 6, type });
+    const audits = await guild.fetchAuditLogs({ limit: 8, type });
     const entries = [...audits.entries.values()];
     for (const entry of entries) {
       if (predicate(entry)) return entry;
     }
-  } catch {}
+  } catch {
+    // Missing View Audit Log permission or transient error
+  }
   return null;
+}
+
+// Helps avoid attributing the wrong audit log entry (race conditions happen)
+function isRecent(entry, seconds = 15) {
+  if (!entry?.createdTimestamp) return false;
+  return Date.now() - entry.createdTimestamp < seconds * 1000;
 }
 
 module.exports = {
@@ -24,7 +32,7 @@ module.exports = {
       const entry = await findAuditEntry(
         guild,
         AuditLogEvent.MemberBanAdd,
-        (e) => e.target?.id === user.id
+        (e) => e.target?.id === user.id && isRecent(e)
       );
 
       const embed = baseEmbed("Member Banned")
@@ -45,7 +53,7 @@ module.exports = {
       const entry = await findAuditEntry(
         guild,
         AuditLogEvent.MemberBanRemove,
-        (e) => e.target?.id === user.id
+        (e) => e.target?.id === user.id && isRecent(e)
       );
 
       const embed = baseEmbed("Member Unbanned")
@@ -64,24 +72,71 @@ module.exports = {
       try {
         const oldTs = oldMember.communicationDisabledUntilTimestamp ?? null;
         const newTs = newMember.communicationDisabledUntilTimestamp ?? null;
-        if (oldTs === newTs) return;
+
+        // Role changes also come through GuildMemberUpdate — handle timeouts here, roles below.
+        if (oldTs !== newTs) {
+          const guild = newMember.guild;
+          const target = newMember.user;
+
+          const entry = await findAuditEntry(
+            guild,
+            AuditLogEvent.MemberUpdate,
+            (e) => e.target?.id === target.id && isRecent(e)
+          );
+
+          const embed = baseEmbed(newTs ? "Member Timed Out" : "Timeout Removed")
+            .setDescription(`**User:** ${target.tag}\n**User ID:** ${target.id}`);
+
+          if (newTs) {
+            embed.addFields({
+              name: "Until",
+              value: `<t:${Math.floor(newTs / 1000)}:F>`,
+              inline: false,
+            });
+          }
+
+          if (entry) {
+            setActor(embed, entry.executor);
+            if (entry.reason) embed.addFields({ name: "Reason", value: clip(entry.reason, 1024) });
+          }
+
+          await sendToGuildLog(client, guild.id, { embeds: [embed] });
+        }
+
+        // --- Member role add/remove (also GuildMemberUpdate) ---
+        const oldSet = new Set(oldMember.roles.cache.map((r) => r.id));
+        const newSet = new Set(newMember.roles.cache.map((r) => r.id));
+
+        const added = [...newSet].filter((id) => !oldSet.has(id));
+        const removed = [...oldSet].filter((id) => !newSet.has(id));
+
+        if (added.length === 0 && removed.length === 0) return;
 
         const guild = newMember.guild;
-        const target = newMember.user;
+        const user = newMember.user;
 
+        // Best-effort actor attribution via MemberRoleUpdate (not perfect, but usually correct if recent)
         const entry = await findAuditEntry(
           guild,
-          AuditLogEvent.MemberUpdate,
-          (e) => e.target?.id === target.id
+          AuditLogEvent.MemberRoleUpdate,
+          (e) => e.target?.id === user.id && isRecent(e)
         );
 
-        const embed = baseEmbed(newTs ? "Member Timed Out" : "Timeout Removed")
-          .setDescription(`**User:** ${target.tag}\n**User ID:** ${target.id}`);
+        const embed = baseEmbed("Member Roles Updated")
+          .setDescription(`**User:** ${user.tag}\n**User ID:** ${user.id}`);
 
-        if (newTs) {
+        if (added.length) {
           embed.addFields({
-            name: "Until",
-            value: `<t:${Math.floor(newTs / 1000)}:F>`,
+            name: "Roles Added",
+            value: added.map((id) => `<@&${id}>`).join("\n").slice(0, 1024),
+            inline: false,
+          });
+        }
+
+        if (removed.length) {
+          embed.addFields({
+            name: "Roles Removed",
+            value: removed.map((id) => `<@&${id}>`).join("\n").slice(0, 1024),
             inline: false,
           });
         }
@@ -93,7 +148,7 @@ module.exports = {
 
         await sendToGuildLog(client, guild.id, { embeds: [embed] });
       } catch (err) {
-        console.error("❌ Timeout logging error:", err);
+        console.error("❌ GuildMemberUpdate (timeout/roles) log error:", err);
       }
     });
 
@@ -105,7 +160,7 @@ module.exports = {
         const entry = await findAuditEntry(
           guild,
           AuditLogEvent.MemberKick,
-          (e) => e.target?.id === member.id
+          (e) => e.target?.id === member.id && isRecent(e)
         );
 
         if (!entry) return; // normal leave handled elsewhere
@@ -119,10 +174,153 @@ module.exports = {
 
         await sendToGuildLog(client, guild.id, { embeds: [embed] });
       } catch (err) {
-        console.error("❌ Kick logging error:", err);
+        console.error("❌ GuildMemberRemove (kick) log error:", err);
       }
     });
 
-    console.log("🛡️ moderationLogs module registered.");
+    // =========================
+    // Roles: create/update/delete
+    // =========================
+
+    client.on(Events.RoleCreate, async (role) => {
+      const guild = role.guild;
+
+      const entry = await findAuditEntry(
+        guild,
+        AuditLogEvent.RoleCreate,
+        (e) => e.target?.id === role.id && isRecent(e)
+      );
+
+      const embed = baseEmbed("Role Created")
+        .setDescription(`**Role:** ${role.name}\n**Role ID:** ${role.id}`);
+
+      if (entry) setActor(embed, entry.executor);
+
+      await sendToGuildLog(client, guild.id, { embeds: [embed] });
+    });
+
+    client.on(Events.RoleDelete, async (role) => {
+      const guild = role.guild;
+
+      const entry = await findAuditEntry(
+        guild,
+        AuditLogEvent.RoleDelete,
+        (e) => e.target?.id === role.id && isRecent(e)
+      );
+
+      const embed = baseEmbed("Role Deleted")
+        .setDescription(`**Role:** ${role.name}\n**Role ID:** ${role.id}`);
+
+      if (entry) setActor(embed, entry.executor);
+
+      await sendToGuildLog(client, guild.id, { embeds: [embed] });
+    });
+
+    client.on(Events.RoleUpdate, async (oldRole, newRole) => {
+      const guild = newRole.guild;
+
+      const changes = [];
+      if (oldRole.name !== newRole.name) changes.push(`Name: \`${oldRole.name}\` → \`${newRole.name}\``);
+      if (oldRole.hexColor !== newRole.hexColor) changes.push(`Color: \`${oldRole.hexColor}\` → \`${newRole.hexColor}\``);
+      if (oldRole.hoist !== newRole.hoist) changes.push(`Hoist: \`${oldRole.hoist}\` → \`${newRole.hoist}\``);
+      if (oldRole.mentionable !== newRole.mentionable) changes.push(`Mentionable: \`${oldRole.mentionable}\` → \`${newRole.mentionable}\``);
+      if (oldRole.permissions.bitfield !== newRole.permissions.bitfield) changes.push("Permissions changed");
+
+      if (changes.length === 0) return;
+
+      const entry = await findAuditEntry(
+        guild,
+        AuditLogEvent.RoleUpdate,
+        (e) => e.target?.id === newRole.id && isRecent(e)
+      );
+
+      const embed = baseEmbed("Role Updated")
+        .setDescription(`**Role:** ${newRole.name}\n**Role ID:** ${newRole.id}`)
+        .addFields({ name: "Changes", value: clip(changes.join("\n"), 1024) });
+
+      if (entry) setActor(embed, entry.executor);
+
+      await sendToGuildLog(client, guild.id, { embeds: [embed] });
+    });
+
+    // =========================
+    // Channels: create/update/delete
+    // =========================
+
+    client.on(Events.ChannelCreate, async (channel) => {
+      if (!channel.guild) return;
+
+      const entry = await findAuditEntry(
+        channel.guild,
+        AuditLogEvent.ChannelCreate,
+        (e) => e.target?.id === channel.id && isRecent(e)
+      );
+
+      const embed = baseEmbed("Channel Created")
+        .setDescription(`**Channel:** <#${channel.id}>\n**Channel ID:** ${channel.id}`);
+
+      if (entry) setActor(embed, entry.executor);
+
+      await sendToGuildLog(client, channel.guild.id, { embeds: [embed] });
+    });
+
+    client.on(Events.ChannelDelete, async (channel) => {
+      if (!channel.guild) return;
+
+      const entry = await findAuditEntry(
+        channel.guild,
+        AuditLogEvent.ChannelDelete,
+        (e) => e.target?.id === channel.id && isRecent(e)
+      );
+
+      const embed = baseEmbed("Channel Deleted")
+        .setDescription(`**Channel:** #${channel.name ?? "unknown"}\n**Channel ID:** ${channel.id}`);
+
+      if (entry) setActor(embed, entry.executor);
+
+      await sendToGuildLog(client, channel.guild.id, { embeds: [embed] });
+    });
+
+    client.on(Events.ChannelUpdate, async (oldChannel, newChannel) => {
+      if (!newChannel.guild) return;
+
+      const changes = [];
+
+      if (oldChannel.name !== newChannel.name) {
+        changes.push(`Name: \`${oldChannel.name}\` → \`${newChannel.name}\``);
+      }
+
+      // Topic exists on some channel types
+      const oldTopic = oldChannel.topic ?? null;
+      const newTopic = newChannel.topic ?? null;
+      if (oldTopic !== newTopic) changes.push("Topic changed");
+
+      if (typeof oldChannel.nsfw !== "undefined" && oldChannel.nsfw !== newChannel.nsfw) {
+        changes.push(`NSFW: \`${oldChannel.nsfw}\` → \`${newChannel.nsfw}\``);
+      }
+
+      if (typeof oldChannel.rateLimitPerUser !== "undefined" &&
+          oldChannel.rateLimitPerUser !== newChannel.rateLimitPerUser) {
+        changes.push(`Slowmode: \`${oldChannel.rateLimitPerUser}s\` → \`${newChannel.rateLimitPerUser}s\``);
+      }
+
+      if (changes.length === 0) return;
+
+      const entry = await findAuditEntry(
+        newChannel.guild,
+        AuditLogEvent.ChannelUpdate,
+        (e) => e.target?.id === newChannel.id && isRecent(e)
+      );
+
+      const embed = baseEmbed("Channel Updated")
+        .setDescription(`**Channel:** <#${newChannel.id}>\n**Channel ID:** ${newChannel.id}`)
+        .addFields({ name: "Changes", value: clip(changes.join("\n"), 1024) });
+
+      if (entry) setActor(embed, entry.executor);
+
+      await sendToGuildLog(client, newChannel.guild.id, { embeds: [embed] });
+    });
+
+    console.log("🛡️ moderationLogs module registered (roles + channels).");
   },
 };
