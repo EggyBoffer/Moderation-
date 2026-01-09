@@ -1,7 +1,16 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
+/**
+ * Supports:
+ * 1) Normal event files: { name, once?, execute(client, ...args) }
+ * 2) Module files: { register(client) }  // attaches multiple listeners internally
+ */
 function loadEvents(client, eventsDirPath) {
+  if (!fs.existsSync(eventsDirPath)) {
+    throw new Error(`Events folder not found: ${eventsDirPath}`);
+  }
+
   const eventFiles = fs.readdirSync(eventsDirPath).filter((f) => f.endsWith(".js"));
   const loaded = [];
 
@@ -9,22 +18,23 @@ function loadEvents(client, eventsDirPath) {
     const filePath = path.join(eventsDirPath, file);
     const mod = require(filePath);
 
-    // Special module: if name is not a Discord event, we still allow execute(client) to attach its own listeners.
-    if (!mod?.name || typeof mod.execute !== "function") {
-      console.warn(`⚠️ Skipping invalid event module: ${file}`);
+    // Module pattern: mod.register(client)
+    if (typeof mod.register === "function") {
+      mod.register(client);
+      loaded.push(file.replace(".js", ""));
       continue;
     }
 
-    // If it's a normal discord.js event, register it.
-    // If it's a "module" (like moderationLogs) it will attach listeners itself.
-    const isDiscordEvent = typeof mod.name === "string" && mod.name.startsWith("discord.");
+    // Normal event pattern
+    if (!mod?.name || typeof mod.execute !== "function") {
+      console.warn(`⚠️ Skipping invalid event file: ${file}`);
+      continue;
+    }
 
-    if (isDiscordEvent) {
-      if (mod.once) client.once(mod.name, (...args) => mod.execute(client, ...args));
-      else client.on(mod.name, (...args) => mod.execute(client, ...args));
+    if (mod.once) {
+      client.once(mod.name, (...args) => mod.execute(client, ...args));
     } else {
-      // Module pattern
-      mod.execute(client);
+      client.on(mod.name, (...args) => mod.execute(client, ...args));
     }
 
     loaded.push(file.replace(".js", ""));
