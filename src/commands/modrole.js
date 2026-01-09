@@ -3,6 +3,8 @@ const {
   PermissionFlagsBits,
 } = require("discord.js");
 
+const { replyEphemeral, deferEphemeral } = require("../handlers/interactionReply");
+
 const { getGuildConfig, setGuildConfig } = require("../storage/guildConfig");
 
 function normalizeRoleIds(arr) {
@@ -37,7 +39,7 @@ module.exports = {
 
   async execute(interaction) {
     if (!interaction.inGuild()) {
-      return interaction.reply({ content: "Use this command in a server.", ephemeral: true });
+      return replyEphemeral(interaction, "You must use this command in a server.");
     }
 
     const sub = interaction.options.getSubcommand(true);
@@ -49,10 +51,9 @@ module.exports = {
         ? modRoleIds.map((id) => `<@&${id}>`).join("\n")
         : "*No mod roles set.*";
 
-      return interaction.reply({
-        content: `**Mod roles for this server:**\n${list}`,
-        ephemeral: true,
-      });
+      return replyEphemeral(
+        interaction, `**Mod roles for this server:**\n${list}`
+      );
     }
 
     const role = interaction.options.getRole("role", true);
@@ -61,20 +62,17 @@ module.exports = {
       const next = normalizeRoleIds([...modRoleIds, role.id]);
       setGuildConfig(interaction.guildId, { modRoleIds: next });
 
-      return interaction.reply({
-        content: `✅ Added mod role: ${role}`,
-        ephemeral: true,
-      });
+      return replyEphemeral(
+        interaction, `✅ Added mod role: ${role}`
+      );
     }
 
     if (sub === "remove") {
       const next = modRoleIds.filter((id) => id !== role.id);
       setGuildConfig(interaction.guildId, { modRoleIds: next });
 
-      return interaction.reply({
-        content: `✅ Removed mod role: ${role}`,
-        ephemeral: true,
-      });
+      return replyEphemeral(
+        interaction, `✅ Removed mod role: ${role}`);
     }
   },
 };

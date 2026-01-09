@@ -1,6 +1,8 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
 const { setGuildConfig } = require("../storage/guildConfig");
 
+const { replyEphemeral, deferEphemeral } = require("../handlers/interactionReply");
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("setlogchannel")
@@ -16,21 +18,24 @@ module.exports = {
 
   async execute(interaction) {
     if (!interaction.inGuild()) {
-      return interaction.reply({ content: "This command can only be used in a server.", ephemeral: true });
+      return replyEphemeral(
+         interaction, "This command can only be used in a server." 
+      );
     }
 
     const channel = interaction.options.getChannel("channel", true);
 
     // Basic safety: ensure it's a text channel you can send to
     if (!channel?.isTextBased?.() || channel.isDMBased?.()) {
-      return interaction.reply({ content: "Pick a text channel in this server.", ephemeral: true });
+      return replyEphemeral(
+        interaction, "Pick a text channel in this server."
+      );
     }
 
     const updated = setGuildConfig(interaction.guildId, { logChannelId: channel.id });
 
-    await interaction.reply({
-      content: `✅ Log channel set to ${channel} for this server.`,
-      ephemeral: true,
-    });
+    await replyEphemeral(
+      interaction, `✅ Log channel set to ${channel} for this server.`
+    );
   },
 };

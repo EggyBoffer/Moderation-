@@ -3,10 +3,13 @@ const {
   PermissionFlagsBits,
   EmbedBuilder,
   ChannelType,
+  MessageFlags,
 } = require("discord.js");
 
 const { sendToGuildLog } = require("../handlers/logChannel");
 const { isMod } = require("../handlers/permissions");
+
+const { replyEphemeral, deferEphemeral } = require("../handlers/interactionReply");
 
 const MAX_BULK = 100;          // Discord bulk delete max per call
 const MAX_SCAN = 1000;         // Max messages to scan when filters are used (safety/perf)
@@ -90,12 +93,12 @@ module.exports = {
   async execute(interaction, client) {
     try {
       if (!interaction.inGuild()) {
-        return interaction.reply({ content: "Use this command in a server.", ephemeral: true });
+        return replyEphemeral( interaction, "You must use this command in an actual server!");
       }
 
       const channel = interaction.channel;
       if (!channel || !channel.isTextBased()) {
-        return interaction.reply({ content: "This command must be used in a text channel.", ephemeral: true });
+        return replyEphemeral(interaction, "You must use this command in a text channel!");
       }
 
       // Optional: restrict to typical text/announcement channels only
@@ -104,10 +107,8 @@ module.exports = {
         channel.type !== ChannelType.GuildText &&
         channel.type !== ChannelType.GuildAnnouncement
       ) {
-        return interaction.reply({
-          content: "Use this command in a normal text channel.",
-          ephemeral: true,
-        });
+        return replyEphemeral(
+          interaction, "Use this command in a normal text channel.");
       }
 
       const amount = interaction.options.getInteger("amount", true);
@@ -125,31 +126,28 @@ module.exports = {
 
       // 1) Mod-role gate (server policy)
       if (!isMod(member, interaction.guildId)) {
-        return interaction.reply({
-          content: "You are not allowed to use this command (mod role required).",
-          ephemeral: true,
-        });
+        return replyEphemeral(
+            interaction, "Use this command in a server."
+        );
       }
 
       // 2) Channel-specific permission check (user)
       const userPerms = channel.permissionsFor(member);
       if (!userPerms || !userPerms.has(PermissionFlagsBits.ManageMessages)) {
-        return interaction.reply({
-          content: "You do not have permission to manage messages in this channel.",
-          ephemeral: true,
-        });
+        return replyEphemeral(
+          interaction, "You do not have permission to manage messages in this channel."
+        );
       }
 
       // 3) Channel-specific permission check (bot)
       const botPerms = channel.permissionsFor(botMember);
       if (!botPerms || !botPerms.has(PermissionFlagsBits.ManageMessages)) {
-        return interaction.reply({
-          content: "I do not have permission to manage messages in this channel.",
-          ephemeral: true,
-        });
+        return replyEphemeral(
+          interaction, "I do not have permission to manage messages in this channel."
+        );
       }
 
-      await interaction.deferReply({ ephemeral: true });
+      await deferEphemeral(interaction);
 
       const hasFilters = !!user || !!role || !!contains || botsOnly || attachmentsOnly;
 
@@ -260,7 +258,9 @@ module.exports = {
       if (interaction.deferred || interaction.replied) {
         await interaction.editReply("Something went wrong running purge.");
       } else {
-        await interaction.reply({ content: "Something went wrong running purge.", ephemeral: true });
+        await replyEphemeral(
+             interaction, "Something went wrong running purge." 
+            );
       }
     }
   },
