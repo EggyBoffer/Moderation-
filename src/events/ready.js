@@ -1,5 +1,9 @@
 const { Events } = require("discord.js");
 const { updateCountsForGuild } = require("../handlers/updateCounts");
+const {
+  startTimeChannelsTicker,
+  updateTimeChannelsForGuild,
+} = require("../handlers/timeChannels");
 
 module.exports = {
   name: Events.ClientReady,
@@ -34,7 +38,13 @@ module.exports = {
 
       // Update member/user/bot count channels (if configured)
       updateCountsForGuild(guild).catch(() => null);
+
+      // Initial time channels update (if configured)
+      updateTimeChannelsForGuild(guild).catch(() => null);
     }
+
+    // Start global ticker (updates all configured guilds every minute)
+    startTimeChannelsTicker(client);
 
     console.log("✅ Invite cache warmed.");
   },
