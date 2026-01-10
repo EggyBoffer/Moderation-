@@ -10,18 +10,20 @@ function makeName(label, n) {
 }
 
 async function ensureVoiceStatChannel(guild, categoryId, channelId, name, everyoneRoleId) {
-  // Try fetch existing channel
   let ch = null;
 
   if (channelId) {
-    ch = guild.channels.cache.get(channelId) || (await guild.channels.fetch(channelId).catch(() => null));
+    ch =
+      guild.channels.cache.get(channelId) ||
+      (await guild.channels.fetch(channelId).catch(() => null));
+
     if (ch && ch.type !== ChannelType.GuildVoice) {
-      // Wrong type; discard and recreate
       ch = null;
     }
   }
 
   if (!ch) {
+    // Create channel
     ch = await guild.channels.create({
       name,
       type: ChannelType.GuildVoice,
@@ -34,21 +36,23 @@ async function ensureVoiceStatChannel(guild, categoryId, channelId, name, everyo
       ],
     });
   } else {
-    // Ensure correct parent + permissions
+    // Ensure correct parent (if category exists)
     if (categoryId && ch.parentId !== categoryId) {
       await ch.setParent(categoryId).catch(() => null);
     }
 
     // Keep it “display-only”
-    await ch.permissionOverwrites.edit(everyoneRoleId, {
-      Connect: false,
-      Speak: false,
-    }).catch(() => null);
-  }
+    await ch.permissionOverwrites
+      .edit(everyoneRoleId, {
+        Connect: false,
+        Speak: false,
+      })
+      .catch(() => null);
 
-  // Rename if needed
-  if (ch.name !== name) {
-    await ch.setName(name).catch(() => null);
+    // Rename if needed
+    if (ch.name !== name) {
+      await ch.setName(name).catch(() => null);
+    }
   }
 
   return ch;
@@ -67,29 +71,43 @@ async function updateCountsForGuild(guild, { force = false } = {}) {
   const cfg = getGuildConfig(guild.id);
 
   const categoryId = cfg.countsCategoryId;
-  const enabled = Boolean(categoryId); // “enabled if category set”
-  if (!enabled) return;
+  if (!categoryId) return;
+
+  // Validate category still exists & is accessible
+  const category =
+    guild.channels.cache.get(categoryId) ||
+    (await guild.channels.fetch(categoryId).catch(() => null));
+  if (!category || category.type !== ChannelType.GuildCategory) {
+    // Category missing/deleted or not accessible → don't hard-crash
+    console.warn(`⚠️ Counts category missing/invalid for guild ${guild.id}.`);
+    return;
+  }
 
   // Bot needs Manage Channels to create/rename channels
-  const me = guild.members.me;
+  let me = guild.members.me;
+  if (!me) me = await guild.members.fetchMe().catch(() => null);
   if (!me?.permissions?.has(PermissionFlagsBits.ManageChannels)) return;
 
-  // Total members is accurate
   const total = guild.memberCount ?? 0;
 
-  // Bots/users requires member list. We fetch to be accurate.
-  // On huge servers this can be heavier; we throttle and only do it on join/leave/ready/refresh.
   let bots = 0;
   let humans = 0;
 
+  // Attempt full fetch for accurate split
   try {
     const members = await guild.members.fetch();
     bots = members.filter((m) => m.user?.bot).size;
     humans = members.size - bots;
   } catch {
-    // Fallback if fetch fails: we can’t split reliably
-    humans = Math.max(0, total);
-    bots = 0;
+    // Fallback to cache (better than forcing bots=0)
+    const cached = guild.members.cache;
+    if (cached && cached.size > 0) {
+      bots = cached.filter((m) => m.user?.bot).size;
+      humans = cached.size - bots;
+    } else {
+      humans = Math.max(0, total);
+      bots = 0;
+    }
   }
 
   const everyoneRoleId = guild.roles.everyone.id;
@@ -102,6 +120,7 @@ async function updateCountsForGuild(guild, { force = false } = {}) {
   const humansName = makeName(humansLabel, humans);
   const botsName = makeName(botsLabel, bots);
 
+  // Create/update channels safely
   const membersCh = await ensureVoiceStatChannel(
     guild,
     categoryId,
@@ -126,7 +145,7 @@ async function updateCountsForGuild(guild, { force = false } = {}) {
     everyoneRoleId
   );
 
-  // Persist IDs (merge patch)
+  // Persist IDs
   setGuildConfig(guild.id, {
     countsMembersChannelId: membersCh.id,
     countsHumansChannelId: humansCh.id,

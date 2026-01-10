@@ -6,10 +6,11 @@ module.exports = {
   once: true,
   async execute(client) {
     try {
-      // Hourly tenure checks, join catch-up every 30 mins
+      // Tenure rules: hourly is fine.
+      // Join catch-up: make it fast so short delays work even without timers / after restarts.
       startAutoRoleScheduler(client, {
-        tenureEveryMs: 60 * 60 * 1000,
-        joinCatchupEveryMs: 30 * 60 * 1000,
+        tenureEveryMs: 60 * 60 * 1000,      // 1 hour
+        joinCatchupEveryMs: 30 * 1000,      // 30 seconds
       });
     } catch (err) {
       console.error("❌ Auto-role scheduler start error:", err);
