@@ -12,10 +12,9 @@ function safeLabel(s, fallback) {
 
 function formatTimeForZone(timeZone, locale = "en-GB") {
   try {
-    // Example: "Sat 18:05"
+    // Example: "18:05"
     const fmt = new Intl.DateTimeFormat(locale, {
       timeZone,
-      weekday: "short",
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
@@ -27,10 +26,22 @@ function formatTimeForZone(timeZone, locale = "en-GB") {
 }
 
 function buildChannelName(label, timeStr) {
-  // Keep it short; Discord channel names max 100 chars.
-  // Example: "🕒 London — Sat 18:05"
-  const base = `${label} — ${timeStr}`;
-  return base.length > 96 ? base.slice(0, 96) : base;
+  const l = String(label || "").trim();
+  const t = String(timeStr || "").trim();
+
+  // If label already ends with punctuation like ":" then keep it nice
+  // "Skinner time:" -> "Skinner time: 18:05"
+  // Otherwise use a separator
+  const endsWithColon = l.endsWith(":");
+  const endsWithDash = l.endsWith("—") || l.endsWith("-");
+
+  let name = "";
+  if (endsWithColon) name = `${l} ${t}`;
+  else if (endsWithDash) name = `${l} ${t}`;
+  else name = `${l} — ${t}`;
+
+  // Discord channel names max 100 chars
+  return name.length > 96 ? name.slice(0, 96) : name;
 }
 
 async function ensureVoiceTimeChannel(guild, categoryId, channelId, name) {
@@ -124,7 +135,6 @@ async function updateTimeChannelsForGuild(guild, { force = false } = {}) {
 
     const timeStr = formatTimeForZone(timeZone, locale);
     if (!timeStr) {
-      // Invalid timezone; keep it out (don’t brick the whole system)
       console.warn(`⚠️ Invalid timeZone "${timeZone}" in guild ${guild.id}`);
       continue;
     }
@@ -166,10 +176,10 @@ function startTimeChannelsTicker(client) {
   // Run once immediately
   runAll().catch(() => null);
 
-  // Align tick to the next minute boundary (so times flip neatly)
+  // Align tick to the next minute boundary
   const schedule = () => {
     const now = Date.now();
-    const msToNextMinute = 60_000 - (now % 60_000) + 250; // small offset
+    const msToNextMinute = 60_000 - (now % 60_000) + 250;
     setTimeout(() => {
       runAll().catch(() => null);
       setInterval(() => runAll().catch(() => null), 60_000);

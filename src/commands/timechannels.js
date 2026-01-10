@@ -96,8 +96,25 @@ module.exports = {
         .addStringOption((opt) =>
           opt
             .setName("label")
-            .setDescription('Label shown in the channel name (e.g. "🕒 London")')
+            .setDescription('Custom label (e.g. "Skinner time:")')
             .setRequired(false)
+        )
+    )
+    .addSubcommand((sc) =>
+      sc
+        .setName("label")
+        .setDescription("Change the label for an existing timezone")
+        .addStringOption((opt) =>
+          opt
+            .setName("timezone")
+            .setDescription('Timezone to relabel (e.g. "America/New_York")')
+            .setRequired(true)
+        )
+        .addStringOption((opt) =>
+          opt
+            .setName("label")
+            .setDescription('New label (e.g. "Skinner time:")')
+            .setRequired(true)
         )
     )
     .addSubcommand((sc) =>
@@ -130,7 +147,7 @@ module.exports = {
     )
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
-  async execute(interaction, client) {
+  async execute(interaction) {
     try {
       if (!interaction.inGuild()) {
         return replyEphemeral(interaction, "Use this in a server.");
@@ -160,7 +177,7 @@ module.exports = {
 
         return interaction.editReply(
           `✅ Time channels configured under **${category.name}**.\n` +
-            `Now add zones with \`/timechannels add\`.`
+            `Add zones with \`/timechannels add\`.`
         );
       }
 
@@ -184,13 +201,13 @@ module.exports = {
           );
         }
 
-        const label = normLabel(interaction.options.getString("label")) || `🕒 ${tz}`;
+        const label =
+          normLabel(interaction.options.getString("label")) || `🕒 ${tz}`;
 
         const entries = getEntries(cfg);
         const existing = entries.find((e) => normZone(e.timeZone) === tz);
 
         if (existing) {
-          // Update label only
           const next = entries.map((e) =>
             normZone(e.timeZone) === tz ? { ...e, label } : e
           );
@@ -200,7 +217,9 @@ module.exports = {
           await deferEphemeral(interaction);
           await updateTimeChannelsForGuild(interaction.guild, { force: true });
 
-          return interaction.editReply(`✅ Updated **${tz}** label to: **${label}**`);
+          return interaction.editReply(
+            `✅ Updated **${tz}** label to: **${label}**`
+          );
         }
 
         setGuildConfig(interaction.guildId, {
@@ -213,26 +232,56 @@ module.exports = {
         return interaction.editReply(`✅ Added timezone: **${tz}**`);
       }
 
+      if (sub === "label") {
+        const tz = normZone(interaction.options.getString("timezone", true));
+        const label = normLabel(interaction.options.getString("label", true));
+
+        const cfg = getGuildConfig(interaction.guildId);
+        const entries = getEntries(cfg);
+
+        const existing = entries.find((e) => normZone(e.timeZone) === tz);
+        if (!existing) {
+          return replyEphemeral(
+            interaction,
+            `No entry found for timezone: **${tz}**\nUse \`/timechannels add\` first.`
+          );
+        }
+
+        const next = entries.map((e) =>
+          normZone(e.timeZone) === tz ? { ...e, label } : e
+        );
+
+        setGuildConfig(interaction.guildId, { timeChannels: next });
+
+        await deferEphemeral(interaction);
+        await updateTimeChannelsForGuild(interaction.guild, { force: true });
+
+        return interaction.editReply(`✅ Renamed **${tz}** to: **${label}**`);
+      }
+
       if (sub === "remove") {
         const tz = normZone(interaction.options.getString("timezone", true));
-        const deleteChannel = Boolean(interaction.options.getBoolean("delete_channel"));
+        const deleteChannel = Boolean(
+          interaction.options.getBoolean("delete_channel")
+        );
 
         const cfg = getGuildConfig(interaction.guildId);
         const entries = getEntries(cfg);
 
         const target = entries.find((e) => normZone(e.timeZone) === tz);
         if (!target) {
-          return replyEphemeral(interaction, `No entry found for timezone: **${tz}**`);
+          return replyEphemeral(interaction, `No entry found for: **${tz}**`);
         }
 
         const next = entries.filter((e) => normZone(e.timeZone) !== tz);
         setGuildConfig(interaction.guildId, { timeChannels: next });
 
-        // Optionally delete the channel
         if (deleteChannel && target.channelId) {
           const ch =
             interaction.guild.channels.cache.get(target.channelId) ||
-            (await interaction.guild.channels.fetch(target.channelId).catch(() => null));
+            (await interaction.guild.channels
+              .fetch(target.channelId)
+              .catch(() => null));
 
           if (ch && ch.type === ChannelType.GuildVoice) {
             await ch.delete("TimeChannels removed by admin").catch(() => null);
