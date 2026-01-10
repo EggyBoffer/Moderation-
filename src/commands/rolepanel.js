@@ -19,6 +19,7 @@ const {
   deletePanel,
   listPanels,
   setPanelEmbed,
+  setPanelMode,
   addPanelItem,
   removePanelItem,
 } = require("../handlers/rolePanels");
@@ -76,7 +77,6 @@ function buildRows(guildId, messageId, items) {
 
     if (it.emoji) btn.setEmoji(it.emoji);
 
-    // 5 buttons per row
     if (row.components.length >= 5) {
       rows.push(row);
       row = new ActionRowBuilder();
@@ -85,8 +85,6 @@ function buildRows(guildId, messageId, items) {
   }
 
   if (row.components.length) rows.push(row);
-
-  // Max 5 rows (25 buttons). If more, we’ll just truncate visually.
   return rows.slice(0, 5);
 }
 
@@ -110,34 +108,38 @@ module.exports = {
         .setName("create")
         .setDescription("Create a new role panel message")
         .addChannelOption((opt) =>
-          opt
-            .setName("channel")
-            .setDescription("Channel to post the role panel in")
-            .setRequired(true)
+          opt.setName("channel").setDescription("Channel to post in").setRequired(true)
         )
-        .addStringOption((opt) =>
-          opt
-            .setName("title")
-            .setDescription("Embed title")
-            .setRequired(false)
-        )
+        .addStringOption((opt) => opt.setName("title").setDescription("Embed title"))
         .addStringOption((opt) =>
           opt
             .setName("description")
             .setDescription("Embed description (use \\n for line breaks)")
-            .setRequired(false)
+        )
+        .addStringOption((opt) =>
+          opt.setName("color").setDescription('Hex color like "#57F287"')
+        )
+        .addStringOption((opt) =>
+          opt.setName("footer").setDescription("Footer (use \\n for line breaks)")
+        )
+    )
+
+    .addSubcommand((sc) =>
+      sc
+        .setName("mode")
+        .setDescription("Set panel mode (multi = many roles, single = only one at a time)")
+        .addStringOption((opt) =>
+          opt.setName("message_id").setDescription("Role panel message ID").setRequired(true)
         )
         .addStringOption((opt) =>
           opt
-            .setName("color")
-            .setDescription('Hex color like "#57F287"')
-            .setRequired(false)
-        )
-        .addStringOption((opt) =>
-          opt
-            .setName("footer")
-            .setDescription("Embed footer text (use \\n for line breaks)")
-            .setRequired(false)
+            .setName("mode")
+            .setDescription("Mode")
+            .addChoices(
+              { name: "Multi (toggle many)", value: "multi" },
+              { name: "Single (exclusive)", value: "single" }
+            )
+            .setRequired(true)
         )
     )
 
@@ -146,23 +148,11 @@ module.exports = {
         .setName("add")
         .setDescription("Add or update a button in a role panel")
         .addStringOption((opt) =>
-          opt
-            .setName("message_id")
-            .setDescription("Role panel message ID")
-            .setRequired(true)
+          opt.setName("message_id").setDescription("Role panel message ID").setRequired(true)
         )
-        .addRoleOption((opt) =>
-          opt.setName("role").setDescription("Role to toggle").setRequired(true)
-        )
-        .addStringOption((opt) =>
-          opt.setName("label").setDescription("Button label").setRequired(true)
-        )
-        .addStringOption((opt) =>
-          opt
-            .setName("emoji")
-            .setDescription("Emoji like 😀 or <:name:id>")
-            .setRequired(false)
-        )
+        .addRoleOption((opt) => opt.setName("role").setDescription("Role to toggle").setRequired(true))
+        .addStringOption((opt) => opt.setName("label").setDescription("Button label").setRequired(true))
+        .addStringOption((opt) => opt.setName("emoji").setDescription("Emoji like 😀 or <:name:id>"))
         .addStringOption((opt) =>
           opt
             .setName("style")
@@ -173,7 +163,6 @@ module.exports = {
               { name: "Success (green)", value: "success" },
               { name: "Danger (red)", value: "danger" }
             )
-            .setRequired(false)
         )
     )
 
@@ -182,14 +171,9 @@ module.exports = {
         .setName("remove")
         .setDescription("Remove a button from a role panel")
         .addStringOption((opt) =>
-          opt
-            .setName("message_id")
-            .setDescription("Role panel message ID")
-            .setRequired(true)
+          opt.setName("message_id").setDescription("Role panel message ID").setRequired(true)
         )
-        .addRoleOption((opt) =>
-          opt.setName("role").setDescription("Role to remove").setRequired(true)
-        )
+        .addRoleOption((opt) => opt.setName("role").setDescription("Role to remove").setRequired(true))
     )
 
     .addSubcommand((sc) =>
@@ -197,32 +181,16 @@ module.exports = {
         .setName("edit")
         .setDescription("Edit the role panel embed text")
         .addStringOption((opt) =>
-          opt
-            .setName("message_id")
-            .setDescription("Role panel message ID")
-            .setRequired(true)
+          opt.setName("message_id").setDescription("Role panel message ID").setRequired(true)
         )
-        .addStringOption((opt) =>
-          opt.setName("title").setDescription("Embed title").setRequired(false)
-        )
+        .addStringOption((opt) => opt.setName("title").setDescription("Embed title"))
         .addStringOption((opt) =>
           opt
             .setName("description")
             .setDescription("Embed description (use \\n for line breaks)")
-            .setRequired(false)
         )
-        .addStringOption((opt) =>
-          opt
-            .setName("color")
-            .setDescription('Hex color like "#57F287"')
-            .setRequired(false)
-        )
-        .addStringOption((opt) =>
-          opt
-            .setName("footer")
-            .setDescription("Embed footer text (use \\n for line breaks)")
-            .setRequired(false)
-        )
+        .addStringOption((opt) => opt.setName("color").setDescription('Hex color like "#57F287"'))
+        .addStringOption((opt) => opt.setName("footer").setDescription("Footer (use \\n for line breaks)"))
     )
 
     .addSubcommand((sc) =>
@@ -230,26 +198,18 @@ module.exports = {
         .setName("refresh")
         .setDescription("Rebuild a role panel message from stored config")
         .addStringOption((opt) =>
-          opt
-            .setName("message_id")
-            .setDescription("Role panel message ID")
-            .setRequired(true)
+          opt.setName("message_id").setDescription("Role panel message ID").setRequired(true)
         )
     )
 
-    .addSubcommand((sc) =>
-      sc.setName("list").setDescription("List role panels configured in this server")
-    )
+    .addSubcommand((sc) => sc.setName("list").setDescription("List configured role panels"))
 
     .addSubcommand((sc) =>
       sc
         .setName("delete")
         .setDescription("Delete a role panel from config (does not delete the message)")
         .addStringOption((opt) =>
-          opt
-            .setName("message_id")
-            .setDescription("Role panel message ID")
-            .setRequired(true)
+          opt.setName("message_id").setDescription("Role panel message ID").setRequired(true)
         )
     )
 
@@ -257,9 +217,7 @@ module.exports = {
 
   async execute(interaction, client) {
     try {
-      if (!interaction.inGuild()) {
-        return replyEphemeral(interaction, "Use this in a server.");
-      }
+      if (!interaction.inGuild()) return replyEphemeral(interaction, "Use this in a server.");
 
       const member = interaction.member;
       if (!member.permissions?.has(PermissionFlagsBits.ManageGuild)) {
@@ -279,7 +237,7 @@ module.exports = {
         const title = interaction.options.getString("title") || "Choose Your Roles";
         const description =
           interaction.options.getString("description") ||
-          "Click a button to toggle roles.\nYou can change your mind anytime.";
+          "Click a button to toggle roles.\\nYou can change your mind anytime.";
         const color = parseHexColor(interaction.options.getString("color")) ?? 0x5865F2;
         const footer = interaction.options.getString("footer") || "";
 
@@ -297,10 +255,12 @@ module.exports = {
 
         const msg = await channel.send({ embeds: [embed], components: [] });
 
+        // mode defaults to multi (normal toggle)
         upsertPanel(interaction.guildId, msg.id, {
           channelId: channel.id,
           embed: { title, description, color, footer },
           items: [],
+          mode: "multi",
         });
 
         await interaction.editReply(
@@ -308,12 +268,32 @@ module.exports = {
         );
 
         const log = baseEmbed("Role Panel Created")
-          .setDescription(`**Channel:** ${channel}\n**Message ID:** \`${msg.id}\``)
           .setThumbnail(interaction.guild.iconURL({ size: 128 }))
-          .addFields(
-            { name: "Title", value: clip(title, 256), inline: true },
-            { name: "Buttons", value: "0", inline: true }
-          );
+          .setDescription(`**Channel:** ${channel}\n**Message ID:** \`${msg.id}\`\n**Mode:** multi`);
+        setActor(log, interaction.user);
+        await sendToGuildLog(client, interaction.guildId, { embeds: [log] });
+
+        return;
+      }
+
+      if (sub === "mode") {
+        await deferEphemeral(interaction);
+
+        const messageId = interaction.options.getString("message_id", true).trim();
+        const mode = interaction.options.getString("mode", true);
+
+        const panel = getPanel(interaction.guildId, messageId);
+        if (!panel) return interaction.editReply("That role panel isn’t in config.");
+
+        const updated = setPanelMode(interaction.guildId, messageId, mode);
+        if (!updated) return interaction.editReply("Invalid mode. Use `multi` or `single`.");
+
+        // Optionally refresh message so staff see mode reflected via footer/etc. (we won’t auto-edit text here)
+        await interaction.editReply(`✅ Panel \`${messageId}\` mode set to **${updated.mode}**.`);
+
+        const log = baseEmbed("Role Panel Mode Updated")
+          .setThumbnail(interaction.guild.iconURL({ size: 128 }))
+          .setDescription(`**Message ID:** \`${messageId}\`\n**Mode:** ${updated.mode}`);
         setActor(log, interaction.user);
         await sendToGuildLog(client, interaction.guildId, { embeds: [log] });
 
@@ -334,13 +314,11 @@ module.exports = {
           return interaction.editReply("I can’t find that role panel in config. Did you use `/rolepanel create`?");
         }
 
-        // Bot must be able to grant the role
         const me = interaction.guild.members.me;
         if (!me?.permissions?.has(PermissionFlagsBits.ManageRoles)) {
           return interaction.editReply("I need **Manage Roles** permission to assign roles.");
         }
-        const botTop = me.roles.highest;
-        if (role.position >= botTop.position) {
+        if (role.position >= me.roles.highest.position) {
           return interaction.editReply("I can’t assign that role because it’s above (or equal to) my highest role.");
         }
 
@@ -360,12 +338,9 @@ module.exports = {
           style,
         });
 
-        // Rebuild message
         const updated = getPanel(interaction.guildId, messageId);
         const { message } = await fetchPanelMessage(interaction.guild, updated.channelId, messageId);
-        if (!message) {
-          return interaction.editReply("I couldn’t fetch the panel message. Did it get deleted?");
-        }
+        if (!message) return interaction.editReply("I couldn’t fetch the panel message. Did it get deleted?");
 
         const embed = buildPanelEmbed(interaction.guild, updated);
         const rows = buildRows(interaction.guildId, messageId, updated.items);
@@ -373,12 +348,6 @@ module.exports = {
         await message.edit({ embeds: [embed], components: rows });
 
         await interaction.editReply(`✅ Added/updated button for ${role} on panel \`${messageId}\`.`);
-
-        const log = baseEmbed("Role Panel Updated")
-          .setThumbnail(interaction.guild.iconURL({ size: 128 }))
-          .setDescription(`**Message ID:** \`${messageId}\`\n**Role:** ${role}\n**Label:** ${label}`);
-        setActor(log, interaction.user);
-        await sendToGuildLog(client, interaction.guildId, { embeds: [log] });
 
         return;
       }
@@ -393,9 +362,7 @@ module.exports = {
         if (!panel) return interaction.editReply("That role panel isn’t in config.");
 
         const res = removePanelItem(interaction.guildId, messageId, role.id);
-        if (!res?.removed) {
-          return interaction.editReply("That role wasn’t on the panel.");
-        }
+        if (!res?.removed) return interaction.editReply("That role wasn’t on the panel.");
 
         const updated = res.updated;
         const { message } = await fetchPanelMessage(interaction.guild, updated.channelId, messageId);
@@ -407,12 +374,6 @@ module.exports = {
         await message.edit({ embeds: [embed], components: rows });
 
         await interaction.editReply(`✅ Removed ${role} from panel \`${messageId}\`.`);
-
-        const log = baseEmbed("Role Panel Updated")
-          .setThumbnail(interaction.guild.iconURL({ size: 128 }))
-          .setDescription(`**Message ID:** \`${messageId}\`\nRemoved role: ${role}`);
-        setActor(log, interaction.user);
-        await sendToGuildLog(client, interaction.guildId, { embeds: [log] });
 
         return;
       }
@@ -476,10 +437,16 @@ module.exports = {
 
         const lines = panels
           .slice(0, 15)
-          .map((p) => `• \`${p.messageId}\` — <#${p.channelId}> — **${clip(p.title || "Role Panel", 40)}** — ${p.itemCount} buttons`)
+          .map(
+            (p) =>
+              `• \`${p.messageId}\` — <#${p.channelId}> — **${clip(p.title || "Role Panel", 40)}** — ${p.itemCount} buttons — mode: **${p.mode}**`
+          )
           .join("\n");
 
-        return replyEphemeral(interaction, `📌 Role panels (showing ${Math.min(15, panels.length)}/${panels.length}):\n\n${lines}`);
+        return replyEphemeral(
+          interaction,
+          `📌 Role panels (showing ${Math.min(15, panels.length)}/${panels.length}):\n\n${lines}`
+        );
       }
 
       if (sub === "delete") {
@@ -489,9 +456,7 @@ module.exports = {
         const ok = deletePanel(interaction.guildId, messageId);
         if (!ok) return interaction.editReply("That role panel wasn’t in config.");
 
-        await interaction.editReply(
-          `✅ Deleted panel \`${messageId}\` from config.\n(Panel message was not deleted.)`
-        );
+        await interaction.editReply(`✅ Deleted panel \`${messageId}\` from config. (Message not deleted.)`);
         return;
       }
     } catch (err) {

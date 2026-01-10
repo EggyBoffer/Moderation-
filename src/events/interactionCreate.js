@@ -43,6 +43,15 @@ module.exports = {
             });
           }
 
+          // Extra safety: role must be in this panel
+          const panelRoleIds = (panel.items || []).map((x) => x.roleId);
+          if (!panelRoleIds.includes(roleId)) {
+            return interaction.reply({
+              content: "That button is not configured for this panel.",
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+
           const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
           if (!role) {
             return interaction.reply({
@@ -79,27 +88,48 @@ module.exports = {
           }
 
           const hasRole = member.roles.cache.has(role.id);
+          const mode = (panel.mode || "multi").toLowerCase();
 
-          // Toggle role
           if (hasRole) {
+            // Toggle off always allowed
             await member.roles.remove(role.id);
-          } else {
-            await member.roles.add(role.id);
+
+            await interaction.reply({
+              content: `✅ Removed **${role.name}**`,
+              flags: MessageFlags.Ephemeral,
+            });
+
+            return;
           }
 
+          // If mode is single, remove any other roles from this panel first
+          if (mode === "single") {
+            const toRemove = panelRoleIds.filter((rid) => rid !== role.id && member.roles.cache.has(rid));
+            if (toRemove.length) {
+              await member.roles.remove(toRemove).catch(() => null);
+            }
+          }
+
+          // Then add selected role
+          await member.roles.add(role.id);
+
           await interaction.reply({
-            content: hasRole ? `✅ Removed **${role.name}**` : `✅ Added **${role.name}**`,
+            content:
+              mode === "single"
+                ? `✅ Set your role to **${role.name}**`
+                : `✅ Added **${role.name}**`,
             flags: MessageFlags.Ephemeral,
           });
 
-          // Log it (matches your moderation log style)
+          // Log it
           try {
             const log = baseEmbed("Role Panel Toggle")
               .setThumbnail(interaction.guild.iconURL({ size: 128 }))
               .setDescription(
                 `**User:** ${interaction.user.tag} (ID: ${interaction.user.id})\n` +
                   `**Role:** ${role} (ID: ${role.id})\n` +
-                  `**Action:** ${hasRole ? "Removed" : "Added"}\n` +
+                  `**Mode:** ${mode}\n` +
+                  `**Action:** Added\n` +
                   `**Panel Message ID:** \`${messageId}\``
               );
 
@@ -135,7 +165,7 @@ module.exports = {
     }
 
     // -------------------------------
-    // Slash commands (your existing flow)
+    // Slash commands
     // -------------------------------
     if (!interaction.isChatInputCommand()) return;
 

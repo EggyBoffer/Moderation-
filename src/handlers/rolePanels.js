@@ -1,7 +1,6 @@
 const { getGuildConfig, setGuildConfig } = require("../storage/guildConfig");
 
 function normalizeNewlines(s) {
-  // Slash command options send literal "\n", so convert to actual newline
   return String(s ?? "").replaceAll("\\n", "\n");
 }
 
@@ -42,6 +41,7 @@ function listPanels(guildId) {
     channelId: p.channelId,
     title: p.embed?.title || "",
     itemCount: Array.isArray(p.items) ? p.items.length : 0,
+    mode: p.mode || "multi",
   }));
 }
 
@@ -58,13 +58,23 @@ function setPanelEmbed(guildId, messageId, embedPatch) {
   return upsertPanel(guildId, messageId, existing);
 }
 
+function setPanelMode(guildId, messageId, mode) {
+  const existing = getPanel(guildId, messageId);
+  if (!existing) return null;
+
+  const m = String(mode || "").toLowerCase();
+  if (m !== "multi" && m !== "single") return null;
+
+  existing.mode = m;
+  return upsertPanel(guildId, messageId, existing);
+}
+
 function addPanelItem(guildId, messageId, item) {
   const existing = getPanel(guildId, messageId);
   if (!existing) return null;
 
   existing.items = Array.isArray(existing.items) ? existing.items : [];
 
-  // Replace item for same roleId if it exists
   const idx = existing.items.findIndex((x) => x.roleId === item.roleId);
   if (idx >= 0) existing.items[idx] = item;
   else existing.items.push(item);
@@ -91,6 +101,7 @@ module.exports = {
   deletePanel,
   listPanels,
   setPanelEmbed,
+  setPanelMode,
   addPanelItem,
   removePanelItem,
 };
