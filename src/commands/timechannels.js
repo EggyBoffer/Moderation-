@@ -189,7 +189,7 @@ module.exports = {
         try {
           await withTimeout(
             updateTimeChannelsForGuild(interaction.guild, { force: true }),
-            15_000,
+            20_000,
             "time channel refresh"
           );
           return { ok: true, msg: "✅ Updated immediately." };
@@ -199,7 +199,7 @@ module.exports = {
             ok: false,
             msg:
               "⚠️ Saved the setting, but Discord is being slow right now.\n" +
-              "It’ll still update automatically within the next minute.",
+              "It’ll still update automatically on the next tick.",
           };
         }
       };
@@ -243,8 +243,7 @@ module.exports = {
           );
         }
 
-        const label =
-          normLabel(interaction.options.getString("label")) || `🕒 ${tz}`;
+        const label = normLabel(interaction.options.getString("label")) || `🕒 ${tz}`;
 
         const cfg2 = getGuildConfig(interaction.guildId);
         const entries = getEntries(cfg2);
@@ -258,7 +257,10 @@ module.exports = {
 
           await deferEphemeral(interaction);
           const res = await safeRefresh();
-          return interaction.editReply(`✅ Updated **${tz}** label to: **${label}**\n${res.msg}`);
+
+          return interaction.editReply(
+            `✅ Updated **${tz}** label to: **${label}**\n${res.msg}`
+          );
         }
 
         setGuildConfig(interaction.guildId, {
@@ -267,6 +269,7 @@ module.exports = {
 
         await deferEphemeral(interaction);
         const res = await safeRefresh();
+
         return interaction.editReply(`✅ Added timezone: **${tz}**\n${res.msg}`);
       }
 
@@ -292,6 +295,7 @@ module.exports = {
 
         await deferEphemeral(interaction);
         const res = await safeRefresh();
+
         return interaction.editReply(`✅ Renamed **${tz}** to: **${label}**\n${res.msg}`);
       }
 
@@ -339,7 +343,8 @@ module.exports = {
           const tz = normZone(e.timeZone);
           const label = normLabel(e.label) || tz;
           const ch = e.channelId ? `<#${e.channelId}>` : "*not linked yet*";
-          return `• **${tz}** — "${label}" — ${ch}`;
+          const perms = e.permsApplied ? "✅" : "⚠️";
+          return `• **${tz}** — "${label}" — ${ch} — perms:${perms}`;
         });
 
         return replyEphemeral(
