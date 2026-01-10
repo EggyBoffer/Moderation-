@@ -1,253 +1,324 @@
-const { SlashCommandBuilder, PermissionFlagsBits, ChannelType } = require("discord.js");
-const { replyEphemeral, deferEphemeral } = require("../handlers/interactionReply");
-const { isMod } = require("../handlers/permissions");
-const { getGuildConfig } = require("../storage/guildConfig");
-const { normalizeBoardId, ensureMultiStarboards, setStarboardsConfig } = require("../handlers/starboard");
+const { EmbedBuilder, PermissionFlagsBits } = require("discord.js");
+const { getGuildConfig, setGuildConfig } = require("../storage/guildConfig");
 
-function fmtBoard(id, b) {
-  const watch = b.watchChannelIds?.length ? b.watchChannelIds.map((x) => `<#${x}>`).join(", ") : "(none)";
-  const out = b.channelId ? `<#${b.channelId}>` : "(not set)";
-  return (
-    `**${id}** ${b.enabled ? "✅" : "⛔"}\n` +
-    `• output: ${out}\n` +
-    `• watch: ${watch}\n` +
-    `• emoji: ${b.emoji}\n` +
-    `• threshold: **${b.threshold}**\n` +
-    `• exclude self: ${b.excludeSelf ? "yes" : "no"}\n` +
-    `• ignore bots: ${b.ignoreBots ? "yes" : "no"}`
-  );
+/**
+ * MULTI-STARBOARD CONFIG (per guild)
+ *
+ * starboards: {
+ *   enabled: true,
+ *   boards: {
+ *     [boardId]: {
+ *       enabled: true,
+ *       channelId: "starboardChannelId",
+ *       watchChannelIds: ["123", "456"],
+ *       emoji: "⭐" OR "<:name:id>",
+ *       threshold: 3,
+ *       ignoreBots: true,
+ *       excludeSelf: true
+ *     }
+ *   }
+ * }
+ *
+ * starboardIndex: {
+ *   [boardId]: {
+ *     [sourceMessageId]: { starboardMessageId: "xyz", lastCount: 4 }
+ *   }
+ * }
+ */
+
+function normalizeBoardId(name) {
+  return String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-_]/g, "")
+    .slice(0, 32);
+}
+
+function ensureIndex(cfg) {
+  if (!cfg.starboardIndex || typeof cfg.starboardIndex !== "object") cfg.starboardIndex = {};
+  return cfg.starboardIndex;
+}
+
+/**
+ * Read-only normalization (NO writing here).
+ */
+function ensureMultiStarboards(cfg) {
+  const sb = cfg.starboards || {};
+  const boardsRaw = sb.boards && typeof sb.boards === "object" ? sb.boards : {};
+
+  const boards = {};
+  for (const [id, b] of Object.entries(boardsRaw)) {
+    if (!id) continue;
+    boards[id] = {
+      enabled: b?.enabled !== false,
+      channelId: b?.channelId || null,
+      watchChannelIds: Array.isArray(b?.watchChannelIds)
+        ? Array.from(new Set(b.watchChannelIds.filter(Boolean)))
+        : [],
+      emoji: typeof b?.emoji === "string" ? b.emoji : "⭐",
+      threshold: Number.isFinite(b?.threshold) ? b.threshold : 3,
+      ignoreBots: b?.ignoreBots !== false,
+      excludeSelf: b?.excludeSelf !== false,
+    };
+
+    if (typeof boards[id].threshold !== "number" || boards[id].threshold < 1) boards[id].threshold = 1;
+  }
+
+  return {
+    enabled: Boolean(sb.enabled),
+    boards,
+  };
+}
+
+/**
+ * Migration: if old single-board config exists (cfg.starboard),
+ * convert it to cfg.starboards with a 'default' board and persist.
+ */
+function migrateSingleToMulti(guildId) {
+  const cfg = getGuildConfig(guildId);
+  if (cfg.starboards) return false; // already multi
+
+  if (!cfg.starboard) return false; // nothing to migrate
+
+  const old = cfg.starboard || {};
+  const enabled = Boolean(old.enabled);
+
+  const multi = {
+    enabled,
+    boards: {
+      default: {
+        enabled,
+        channelId: old.starboardChannelId || null,
+        watchChannelIds: Array.isArray(old.watchChannelIds) ? old.watchChannelIds : [],
+        emoji: typeof old.emoji === "string" ? old.emoji : "⭐",
+        threshold: Number.isFinite(old.threshold) ? old.threshold : 3,
+        ignoreBots: old.ignoreBots !== false,
+        excludeSelf: old.excludeSelf !== false,
+      },
+    },
+  };
+
+  const index = ensureIndex(cfg);
+  if (!index.default) index.default = {};
+
+  // Persist new structure AND keep old index if present
+  setGuildConfig(guildId, {
+    starboards: multi,
+    starboardIndex: index,
+  });
+
+  return true;
+}
+
+function setStarboardsConfig(guildId, updates) {
+  // ensure migration happens once and is persisted
+  migrateSingleToMulti(guildId);
+
+  const cfg = getGuildConfig(guildId);
+  const current = ensureMultiStarboards(cfg);
+
+  const next = {
+    ...current,
+    ...updates,
+    boards: { ...current.boards, ...(updates.boards || {}) },
+  };
+
+  // Clean boards
+  const cleaned = {};
+  for (const [id, b] of Object.entries(next.boards || {})) {
+    if (!id) continue;
+    cleaned[id] = {
+      enabled: b.enabled !== false,
+      channelId: b.channelId || null,
+      watchChannelIds: Array.from(new Set((b.watchChannelIds || []).filter(Boolean))),
+      emoji: typeof b.emoji === "string" ? b.emoji : "⭐",
+      threshold: Number.isFinite(b.threshold) ? b.threshold : 3,
+      ignoreBots: b.ignoreBots !== false,
+      excludeSelf: b.excludeSelf !== false,
+    };
+    if (cleaned[id].threshold < 1) cleaned[id].threshold = 1;
+  }
+  next.boards = cleaned;
+
+  setGuildConfig(guildId, { starboards: next });
+
+  // Ensure index containers exist for boards
+  const cfgAfter = getGuildConfig(guildId);
+  const index = ensureIndex(cfgAfter);
+  for (const boardId of Object.keys(next.boards)) {
+    if (!index[boardId]) index[boardId] = {};
+  }
+  setGuildConfig(guildId, { starboardIndex: index });
+
+  return next;
+}
+
+function emojiMatches(reaction, emojiStr) {
+  const cfg = String(emojiStr || "").trim();
+  const name = reaction.emoji?.name || "";
+  const id = reaction.emoji?.id || "";
+
+  if (!cfg) return false;
+  if (cfg === name) return true;
+  if (id && cfg.includes(id)) return true; // "<:x:id>" or "name:id"
+  if (id && cfg === id) return true;
+  return false;
+}
+
+async function countValidStars(reaction, message, boardCfg) {
+  const users = await reaction.users.fetch().catch(() => null);
+  if (!users) return reaction.count || 0;
+
+  let count = 0;
+  for (const [, u] of users) {
+    if (boardCfg.ignoreBots && u.bot) continue;
+    if (boardCfg.excludeSelf && message.author?.id && u.id === message.author.id) continue;
+    count++;
+  }
+  return count;
+}
+
+function buildStarboardEmbed(message, starCount, boardCfg) {
+  const e = new EmbedBuilder()
+    .setAuthor({
+      name: message.author?.tag || "Unknown",
+      iconURL: message.author?.displayAvatarURL?.({ size: 128 }) || null,
+    })
+    .setDescription(message.content?.length ? message.content.slice(0, 4000) : "(no text)")
+    .addFields(
+      { name: "Channel", value: `<#${message.channel.id}>`, inline: true },
+      { name: "Stars", value: `${boardCfg.emoji} **${starCount}**`, inline: true }
+    )
+    .setTimestamp(message.createdAt || new Date());
+
+  const att = message.attachments?.find((a) => (a.contentType || "").startsWith("image/"));
+  if (att?.url) e.setImage(att.url);
+
+  const embImg = (message.embeds || []).find((x) => x?.image?.url)?.image?.url;
+  if (!att?.url && embImg) e.setImage(embImg);
+
+  return e;
+}
+
+async function upsertBoardEntry(client, message, boardId, boardCfg, starCount) {
+  const cfg = getGuildConfig(message.guild.id);
+  const index = ensureIndex(cfg);
+  if (!index[boardId]) index[boardId] = {};
+
+  // Below threshold → remove existing post if present
+  if (starCount < boardCfg.threshold) {
+    const existing = index[boardId][message.id];
+    if (existing?.starboardMessageId && boardCfg.channelId) {
+      const sbChannel =
+        message.guild.channels.cache.get(boardCfg.channelId) ||
+        (await message.guild.channels.fetch(boardCfg.channelId).catch(() => null));
+      if (sbChannel) {
+        const old = await sbChannel.messages.fetch(existing.starboardMessageId).catch(() => null);
+        if (old) await old.delete().catch(() => null);
+      }
+      delete index[boardId][message.id];
+      setGuildConfig(message.guild.id, { starboardIndex: index });
+      return { ok: true, removed: true };
+    }
+    return { ok: true, below: true };
+  }
+
+  if (!boardCfg.channelId) return { ok: true, skipped: "no-channel" };
+
+  const sbChannel =
+    message.guild.channels.cache.get(boardCfg.channelId) ||
+    (await message.guild.channels.fetch(boardCfg.channelId).catch(() => null));
+  if (!sbChannel) return { ok: false, error: "Starboard channel not found" };
+
+  const me = message.guild.members.me;
+  if (!me) return { ok: false, error: "Bot member not available" };
+
+  const perms = sbChannel.permissionsFor(me);
+  if (!perms?.has(PermissionFlagsBits.SendMessages)) return { ok: false, error: "Missing SendMessages" };
+  if (!perms?.has(PermissionFlagsBits.EmbedLinks)) return { ok: false, error: "Missing EmbedLinks" };
+
+  const jump = message.url;
+  const contentTop = `${boardCfg.emoji} **${starCount}** • [Jump to message](${jump}) • \`${boardId}\``;
+
+  const embed = buildStarboardEmbed(message, starCount, boardCfg);
+
+  const existing = index[boardId][message.id];
+  if (existing?.starboardMessageId) {
+    const old = await sbChannel.messages.fetch(existing.starboardMessageId).catch(() => null);
+    if (old) {
+      await old.edit({ content: contentTop, embeds: [embed] }).catch(() => null);
+      index[boardId][message.id] = { starboardMessageId: old.id, lastCount: starCount };
+      setGuildConfig(message.guild.id, { starboardIndex: index });
+      return { ok: true, updated: true, starboardMessageId: old.id };
+    }
+  }
+
+  const sent = await sbChannel.send({ content: contentTop, embeds: [embed] });
+  index[boardId][message.id] = { starboardMessageId: sent.id, lastCount: starCount };
+  setGuildConfig(message.guild.id, { starboardIndex: index });
+
+  return { ok: true, created: true, starboardMessageId: sent.id };
+}
+
+async function handleStarReaction(client, reaction) {
+  if (reaction.partial) await reaction.fetch().catch(() => null);
+  const message = reaction.message;
+  if (!message?.guild) return;
+
+  if (message.partial) await message.fetch().catch(() => null);
+  if (!message.author) return;
+
+  // migrate once (safe no-op if already migrated)
+  migrateSingleToMulti(message.guild.id);
+
+  const cfg = getGuildConfig(message.guild.id);
+  const multi = ensureMultiStarboards(cfg);
+  if (!multi.enabled) return;
+
+  for (const [boardId, b] of Object.entries(multi.boards)) {
+    if (!b.enabled) continue;
+    if (!b.watchChannelIds.includes(message.channel.id)) continue;
+    if (!emojiMatches(reaction, b.emoji)) continue;
+
+    const stars = await countValidStars(reaction, message, b);
+    await upsertBoardEntry(client, message, boardId, b, stars);
+  }
+}
+
+async function cleanupOnMessageDelete(guild, deletedMessageId) {
+  // migrate once (safe no-op)
+  migrateSingleToMulti(guild.id);
+
+  const cfg = getGuildConfig(guild.id);
+  const multi = ensureMultiStarboards(cfg);
+  const index = ensureIndex(cfg);
+
+  for (const [boardId, entries] of Object.entries(index)) {
+    const entry = entries?.[deletedMessageId];
+    if (!entry?.starboardMessageId) continue;
+
+    const board = multi.boards?.[boardId];
+    if (!board?.channelId) continue;
+
+    const sbChannel =
+      guild.channels.cache.get(board.channelId) ||
+      (await guild.channels.fetch(board.channelId).catch(() => null));
+    if (!sbChannel) continue;
+
+    const msg = await sbChannel.messages.fetch(entry.starboardMessageId).catch(() => null);
+    if (msg) await msg.delete().catch(() => null);
+
+    delete index[boardId][deletedMessageId];
+  }
+
+  setGuildConfig(guild.id, { starboardIndex: index });
 }
 
 module.exports = {
-  data: new SlashCommandBuilder()
-    .setName("starboard")
-    .setDescription("Configure starboards (multiple boards supported)")
-
-    .addSubcommand((sc) =>
-      sc
-        .setName("enable")
-        .setDescription("Enable/disable starboards globally")
-        .addBooleanOption((o) => o.setName("enabled").setDescription("Enable?").setRequired(true))
-    )
-
-    .addSubcommand((sc) =>
-      sc
-        .setName("create")
-        .setDescription("Create a new starboard")
-        .addStringOption((o) => o.setName("name").setDescription("Board name").setRequired(true))
-        .addChannelOption((o) =>
-          o
-            .setName("output")
-            .setDescription("Starboard output channel")
-            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
-            .setRequired(true)
-        )
-        .addStringOption((o) =>
-          o.setName("emoji").setDescription("Emoji (⭐ or <:name:id>)").setRequired(false)
-        )
-        .addIntegerOption((o) =>
-          o.setName("threshold").setDescription("Stars needed").setMinValue(1).setMaxValue(50).setRequired(false)
-        )
-    )
-
-    .addSubcommand((sc) =>
-      sc
-        .setName("delete")
-        .setDescription("Delete a starboard")
-        .addStringOption((o) => o.setName("name").setDescription("Board name").setRequired(true))
-    )
-
-    .addSubcommand((sc) => sc.setName("list").setDescription("List starboards"))
-
-    .addSubcommand((sc) =>
-      sc
-        .setName("view")
-        .setDescription("View a starboard")
-        .addStringOption((o) => o.setName("name").setDescription("Board name").setRequired(true))
-    )
-
-    .addSubcommand((sc) =>
-      sc
-        .setName("set")
-        .setDescription("Update settings on a starboard")
-        .addStringOption((o) => o.setName("name").setDescription("Board name").setRequired(true))
-        .addChannelOption((o) =>
-          o
-            .setName("output")
-            .setDescription("Output channel")
-            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
-            .setRequired(false)
-        )
-        .addStringOption((o) => o.setName("emoji").setDescription("Emoji").setRequired(false))
-        .addIntegerOption((o) => o.setName("threshold").setDescription("Threshold").setMinValue(1).setMaxValue(50).setRequired(false))
-        .addBooleanOption((o) => o.setName("enabled").setDescription("Enable this board").setRequired(false))
-        .addBooleanOption((o) => o.setName("exclude_self").setDescription("Exclude self-stars").setRequired(false))
-        .addBooleanOption((o) => o.setName("ignore_bots").setDescription("Ignore bot stars").setRequired(false))
-    )
-
-    .addSubcommand((sc) =>
-      sc
-        .setName("watch-add")
-        .setDescription("Add a watched channel to a board")
-        .addStringOption((o) => o.setName("name").setDescription("Board name").setRequired(true))
-        .addChannelOption((o) =>
-          o
-            .setName("channel")
-            .setDescription("Channel to watch")
-            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
-            .setRequired(true)
-        )
-    )
-
-    .addSubcommand((sc) =>
-      sc
-        .setName("watch-remove")
-        .setDescription("Remove a watched channel from a board")
-        .addStringOption((o) => o.setName("name").setDescription("Board name").setRequired(true))
-        .addChannelOption((o) =>
-          o
-            .setName("channel")
-            .setDescription("Channel to stop watching")
-            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
-            .setRequired(true)
-        )
-    )
-
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
-
-  async execute(interaction) {
-    try {
-      if (!interaction.inGuild()) return replyEphemeral(interaction, "Use this in a server.");
-      if (!isMod(interaction.member, interaction.guildId)) {
-        return replyEphemeral(interaction, "You do not have permission to use this command.");
-      }
-
-      const cfg = ensureMultiStarboards(getGuildConfig(interaction.guildId));
-      const sub = interaction.options.getSubcommand(true);
-
-      if (sub === "enable") {
-        const enabled = interaction.options.getBoolean("enabled", true);
-        const next = setStarboardsConfig(interaction.guildId, { enabled });
-        return replyEphemeral(interaction, `✅ Starboards globally ${enabled ? "enabled" : "disabled"}. (${Object.keys(next.boards).length} board(s))`);
-      }
-
-      if (sub === "list") {
-        const ids = Object.keys(cfg.boards || {}).sort();
-        if (!ids.length) return replyEphemeral(interaction, "No starboards yet. Use `/starboard create`.");
-        return replyEphemeral(interaction, `**Starboards:**\n${ids.map((x) => `• \`${x}\``).join("\n")}`);
-      }
-
-      if (sub === "create") {
-        await deferEphemeral(interaction);
-
-        const rawName = interaction.options.getString("name", true);
-        const id = normalizeBoardId(rawName);
-        if (!id) return interaction.editReply("Invalid board name. Use letters/numbers/dashes.");
-
-        const output = interaction.options.getChannel("output", true);
-        const emoji = interaction.options.getString("emoji") || "⭐";
-        const threshold = interaction.options.getInteger("threshold") || 3;
-
-        if (cfg.boards[id]) return interaction.editReply(`Board \`${id}\` already exists.`);
-
-        const boards = { ...cfg.boards };
-        boards[id] = {
-          enabled: true,
-          channelId: output.id,
-          watchChannelIds: [],
-          emoji,
-          threshold,
-          ignoreBots: true,
-          excludeSelf: true,
-        };
-
-        const next = setStarboardsConfig(interaction.guildId, { enabled: true, boards });
-        return interaction.editReply(`✅ Created starboard \`${id}\` → ${output}\n\n${fmtBoard(id, next.boards[id])}`);
-      }
-
-      if (sub === "delete") {
-        const rawName = interaction.options.getString("name", true);
-        const id = normalizeBoardId(rawName);
-
-        const boards = { ...cfg.boards };
-        if (!boards[id]) return replyEphemeral(interaction, `No board named \`${id}\`.`);
-
-        delete boards[id];
-        const next = setStarboardsConfig(interaction.guildId, { boards });
-        return replyEphemeral(interaction, `🧹 Deleted \`${id}\`. Remaining boards: ${Object.keys(next.boards).length}`);
-      }
-
-      if (sub === "view") {
-        const id = normalizeBoardId(interaction.options.getString("name", true));
-        const b = cfg.boards[id];
-        if (!b) return replyEphemeral(interaction, `No board named \`${id}\`.`);
-        return replyEphemeral(interaction, fmtBoard(id, b));
-      }
-
-      if (sub === "set") {
-        await deferEphemeral(interaction);
-
-        const id = normalizeBoardId(interaction.options.getString("name", true));
-        const b = cfg.boards[id];
-        if (!b) return interaction.editReply(`No board named \`${id}\`.`);
-
-        const output = interaction.options.getChannel("output");
-        const emoji = interaction.options.getString("emoji");
-        const threshold = interaction.options.getInteger("threshold");
-        const enabled = interaction.options.getBoolean("enabled");
-        const excludeSelf = interaction.options.getBoolean("exclude_self");
-        const ignoreBots = interaction.options.getBoolean("ignore_bots");
-
-        const boards = { ...cfg.boards };
-        const nextB = { ...b };
-
-        if (output) nextB.channelId = output.id;
-        if (emoji) nextB.emoji = emoji.trim();
-        if (threshold !== null && threshold !== undefined) nextB.threshold = threshold;
-        if (enabled !== null && enabled !== undefined) nextB.enabled = enabled;
-        if (excludeSelf !== null && excludeSelf !== undefined) nextB.excludeSelf = excludeSelf;
-        if (ignoreBots !== null && ignoreBots !== undefined) nextB.ignoreBots = ignoreBots;
-
-        boards[id] = nextB;
-
-        const next = setStarboardsConfig(interaction.guildId, { boards });
-        return interaction.editReply(`✅ Updated \`${id}\`.\n\n${fmtBoard(id, next.boards[id])}`);
-      }
-
-      if (sub === "watch-add") {
-        const id = normalizeBoardId(interaction.options.getString("name", true));
-        const ch = interaction.options.getChannel("channel", true);
-        const b = cfg.boards[id];
-        if (!b) return replyEphemeral(interaction, `No board named \`${id}\`.`);
-
-        const boards = { ...cfg.boards };
-        boards[id] = { ...b, watchChannelIds: Array.from(new Set([...(b.watchChannelIds || []), ch.id])) };
-
-        const next = setStarboardsConfig(interaction.guildId, { boards });
-        return replyEphemeral(interaction, `✅ \`${id}\` now watches ${ch}.`);
-      }
-
-      if (sub === "watch-remove") {
-        const id = normalizeBoardId(interaction.options.getString("name", true));
-        const ch = interaction.options.getChannel("channel", true);
-        const b = cfg.boards[id];
-        if (!b) return replyEphemeral(interaction, `No board named \`${id}\`.`);
-
-        const boards = { ...cfg.boards };
-        boards[id] = { ...b, watchChannelIds: (b.watchChannelIds || []).filter((x) => x !== ch.id) };
-
-        const next = setStarboardsConfig(interaction.guildId, { boards });
-        return replyEphemeral(interaction, `✅ \`${id}\` no longer watches ${ch}.`);
-      }
-
-      return replyEphemeral(interaction, "Unknown subcommand.");
-    } catch (err) {
-      console.error("❌ starboard command error:", err);
-      if (interaction.deferred || interaction.replied) {
-        await interaction.editReply("Something went wrong running starboard.");
-      } else {
-        await replyEphemeral(interaction, "Something went wrong running starboard.");
-      }
-    }
-  },
+  normalizeBoardId,
+  ensureMultiStarboards,
+  setStarboardsConfig,
+  handleStarReaction,
+  cleanupOnMessageDelete,
 };

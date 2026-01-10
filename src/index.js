@@ -16,18 +16,23 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildMessageReactions, // ✅ REQUIRED for starboard + reaction features
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildModeration,
   ],
-  partials: [Partials.Message, Partials.Channel, Partials.GuildMember, Partials.User],
+  partials: [
+    Partials.Message,
+    Partials.Channel,
+    Partials.Reaction,      // ✅ REQUIRED so reaction events can be fetched reliably
+    Partials.GuildMember,
+    Partials.User,
+  ],
 });
-
 
 client.commands = new Collection();
 const commandsDir = path.join(__dirname, "commands");
 const loadedCommands = loadCommands(commandsDir);
 for (const [name, cmd] of loadedCommands.entries()) client.commands.set(name, cmd);
-
 
 const eventsDir = path.join(__dirname, "events");
 const loadedEventNames = loadEvents(client, eventsDir);
