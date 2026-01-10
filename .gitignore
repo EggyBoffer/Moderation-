@@ -3,7 +3,7 @@ node_modules
 
 # env files
 .env
-.zip
+*.zip
 
 # OS junk
 .DS_Store
