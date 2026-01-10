@@ -10,6 +10,7 @@ const { baseEmbed, setActor } = require("../handlers/logEmbeds");
 const { clip } = require("../handlers/text");
 const { isMod } = require("../handlers/permissions");
 const { parseDurationToMs } = require("../handlers/parseDuration");
+const { addTimeout } = require("../handlers/infractions");
 
 function toDiscordTimestamp(ms) {
   return `<t:${Math.floor(ms / 1000)}:f>`;
@@ -31,7 +32,6 @@ module.exports = {
     .addStringOption((opt) =>
       opt.setName("reason").setDescription("Reason").setRequired(false)
     )
-    // keeps it out of regular users' faces; we still enforce isMod below
     .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers),
 
   async execute(interaction, client) {
@@ -40,20 +40,17 @@ module.exports = {
         return replyEphemeral(interaction, "You must use this command in a server.");
       }
 
-      const member = interaction.member;
-      if (!isMod(member, interaction.guildId)) {
+      if (!isMod(interaction.member, interaction.guildId)) {
         return replyEphemeral(interaction, "You do not have permission to use this command.");
       }
 
-      // Extra safety: ensure invoker has ModerateMembers
-      if (!member.permissions?.has(PermissionFlagsBits.ModerateMembers)) {
-        return replyEphemeral(interaction, "You need **Moderate Members** permission to use this command.");
+      if (!interaction.member.permissions?.has(PermissionFlagsBits.ModerateMembers)) {
+        return replyEphemeral(interaction, "You need **Moderate Members** to use this command.");
       }
 
-      // Ensure bot has ModerateMembers
       const me = interaction.guild.members.me;
       if (!me?.permissions?.has(PermissionFlagsBits.ModerateMembers)) {
-        return replyEphemeral(interaction, "I need **Moderate Members** permission to timeout users.");
+        return replyEphemeral(interaction, "I need **Moderate Members** to timeout users.");
       }
 
       const targetUser = interaction.options.getUser("user", true);
@@ -61,9 +58,7 @@ module.exports = {
       const reasonRaw = interaction.options.getString("reason") || "No reason provided";
 
       const parsed = parseDurationToMs(durationStr);
-      if (!parsed.ok) {
-        return replyEphemeral(interaction, parsed.error);
-      }
+      if (!parsed.ok) return replyEphemeral(interaction, parsed.error);
 
       await deferEphemeral(interaction);
 
@@ -74,60 +69,60 @@ module.exports = {
         return interaction.editReply("I can’t find that user in this server.");
       }
 
-      // Discord.js: "moderatable" checks role hierarchy + permissions for moderation actions
       if (!targetMember.moderatable) {
-        return interaction.editReply("I can’t timeout that member (role hierarchy / permissions).");
+        return interaction.editReply("I can’t timeout that member (hierarchy / permissions).");
       }
 
-      // Apply timeout
       try {
         await targetMember.timeout(parsed.ms, reasonRaw);
       } catch (err) {
-        console.error("❌ timeout command error (apply):", err);
-        return interaction.editReply("Timeout failed. Check my permissions and role position.");
+        console.error("❌ timeout apply error:", err);
+        return interaction.editReply("Timeout failed. Check permissions/role position.");
       }
 
       const liftAt = Date.now() + parsed.ms;
       const liftStamp = toDiscordTimestamp(liftAt);
 
-      // DM the user (failure is OK)
+      // ✅ record in unified infractions history
+      const entry = addTimeout(interaction.guildId, targetUser.id, interaction.user.id, {
+        reason: reasonRaw,
+        durationMs: parsed.ms,
+        durationStr,
+        liftAt,
+      });
+
       let dmStatus = "✅ DM sent to user.";
       try {
         const dmEmbed = baseEmbed("⏳ You Have Been Timed Out")
           .setThumbnail(interaction.guild.iconURL({ size: 128 }))
-          .setDescription(
-            `You have been timed out in **${escapeMarkdown(interaction.guild.name)}**.`
-          )
+          .setDescription(`You have been timed out in **${escapeMarkdown(interaction.guild.name)}**.`)
           .addFields(
             { name: "Reason", value: clip(reasonRaw, 1024) },
             { name: "Timed Out By", value: `${interaction.user.tag}`, inline: true },
             { name: "Duration", value: `${durationStr}`, inline: true },
             { name: "Timeout Lifts", value: `${liftStamp}`, inline: false }
-          )
-          .setFooter({
-            text: "If you believe this is a mistake, contact the server staff.",
-          });
+          );
 
         await targetUser.send({ embeds: [dmEmbed] });
       } catch {
         dmStatus = "⚠️ Could not DM user (DMs closed or blocked).";
       }
 
-      // Reply to moderator
       await interaction.editReply(
         `⏳ Timed out **${targetUser.tag}** for **${durationStr}**\n` +
           `**Timeout lifts:** ${liftStamp}\n` +
+          `**Case ID:** \`${entry.id}\`\n` +
           `**Reason:** ${clip(reasonRaw, 1000)}\n\n` +
           `${dmStatus}`
       );
 
-      // Log to moderation log channel
       const embed = baseEmbed("Timeout Applied")
         .setThumbnail(interaction.guild.iconURL({ size: 128 }))
         .setDescription(
           `**User:** ${targetUser.tag} (ID: ${targetUser.id})\n` +
             `**Duration:** ${durationStr}\n` +
-            `**Timeout lifts:** ${liftStamp}`
+            `**Timeout lifts:** ${liftStamp}\n` +
+            `**Case ID:** ${entry.id}`
         )
         .addFields(
           { name: "Reason", value: clip(reasonRaw, 1024) },
@@ -136,7 +131,6 @@ module.exports = {
 
       setActor(embed, interaction.user);
       await sendToGuildLog(client, interaction.guildId, { embeds: [embed] });
-      return;
     } catch (err) {
       console.error("❌ timeout command error:", err);
       if (interaction.deferred || interaction.replied) {
