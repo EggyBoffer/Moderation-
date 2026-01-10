@@ -5,10 +5,11 @@ const { getGuildConfig, setGuildConfig } = require("../storage/guildConfig");
 /**
  * Infractions / Moderation History
  *
- * Stored in guild config under:
- *   infractions: {
- *     [userId]: Array<{ id, type, userId, modId, reason, ts, meta? }>
- *   }
+ * Stored under:
+ *   infractions: { [userId]: Array<Entry> }
+ *
+ * Entry:
+ *  { id, type, userId, modId, reason, ts, meta? }
  *
  * Types:
  *  - warn
@@ -42,7 +43,6 @@ function getUserInfractions(cfg, userId) {
 }
 
 function saveInfractions(guildId, cfg) {
-  // shallow merge – pass the whole object so we don’t lose other users
   setGuildConfig(guildId, { infractions: cfg.infractions });
 }
 
@@ -56,10 +56,6 @@ function addEntry(guildId, entry) {
   return entry;
 }
 
-/**
- * Removes ANY infraction type by ID.
- * (Back-compat: warn.js already uses this for removing warns.)
- */
 function removeInfractionById(guildId, id) {
   const cfg = ensureInfractions(getGuildConfig(guildId));
   let removed = null;
@@ -83,7 +79,7 @@ function removeInfractionById(guildId, id) {
   return removed;
 }
 
-// ===== Warns (existing API) =====
+// ===== Warns =====
 
 function addWarn(guildId, userId, modId, reason) {
   return addEntry(guildId, {
@@ -101,7 +97,23 @@ function listWarns(guildId, userId) {
   return getUserInfractions(cfg, userId).filter((x) => x.type === "warn");
 }
 
-// ===== Timeouts (new) =====
+function listWarnsWithinWindow(guildId, userId, windowMs) {
+  const warns = listWarns(guildId, userId);
+  if (!windowMs || windowMs <= 0) return warns;
+  const cutoff = Date.now() - windowMs;
+  return warns.filter((w) => (w.ts ?? 0) >= cutoff);
+}
+
+function clearWarnsForUser(guildId, userId) {
+  const cfg = ensureInfractions(getGuildConfig(guildId));
+  const arr = getUserInfractions(cfg, userId);
+  const remaining = arr.filter((x) => x.type !== "warn");
+  cfg.infractions[userId] = remaining;
+  saveInfractions(guildId, cfg);
+  return arr.length - remaining.length; // removed count
+}
+
+// ===== Timeouts =====
 
 function addTimeout(guildId, userId, modId, { reason, durationMs, durationStr, liftAt } = {}) {
   return addEntry(guildId, {
@@ -130,7 +142,7 @@ function addUntimeout(guildId, userId, modId, reason) {
   });
 }
 
-// ===== Notes (new) =====
+// ===== Notes =====
 
 function addNote(guildId, userId, modId, note) {
   return addEntry(guildId, {
@@ -148,7 +160,7 @@ function listNotes(guildId, userId) {
   return getUserInfractions(cfg, userId).filter((x) => x.type === "note");
 }
 
-// ===== Unified history (new) =====
+// ===== Unified =====
 
 function listHistory(guildId, userId) {
   const cfg = ensureInfractions(getGuildConfig(guildId));
@@ -158,21 +170,18 @@ function listHistory(guildId, userId) {
 }
 
 module.exports = {
-  // warns (already used by warn.js)
   addWarn,
   listWarns,
+  listWarnsWithinWindow,
+  clearWarnsForUser,
 
-  // existing remove function used by warn.js
   removeInfractionById,
 
-  // timeouts
   addTimeout,
   addUntimeout,
 
-  // notes
   addNote,
   listNotes,
 
-  // history
   listHistory,
 };

@@ -6,6 +6,7 @@ const { baseEmbed, setActor } = require("../handlers/logEmbeds");
 const { clip } = require("../handlers/text");
 const { isMod } = require("../handlers/permissions");
 const { addWarn, listWarns, removeInfractionById } = require("../handlers/infractions");
+const { maybeEscalateOnWarn } = require("../handlers/escalation");
 
 function formatWarnLine(w) {
   const when = w.ts ? `<t:${Math.floor(w.ts / 1000)}:f>` : "(unknown time)";
@@ -40,13 +41,9 @@ module.exports = {
         .setName("remove")
         .setDescription("Remove a warning by ID")
         .addStringOption((opt) =>
-          opt
-            .setName("id")
-            .setDescription("Warning ID (e.g. INF-...)")
-            .setRequired(true)
+          opt.setName("id").setDescription("Warning ID (e.g. INF-...)").setRequired(true)
         )
     )
-    // keeps it out of regular users' faces; we still enforce isMod below
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
   async execute(interaction, client) {
@@ -55,8 +52,7 @@ module.exports = {
         return replyEphemeral(interaction, "You must use this command in a server.");
       }
 
-      const member = interaction.member;
-      if (!isMod(member, interaction.guildId)) {
+      if (!isMod(interaction.member, interaction.guildId)) {
         return replyEphemeral(interaction, "You do not have permission to use this command.");
       }
 
@@ -68,9 +64,10 @@ module.exports = {
 
         await deferEphemeral(interaction);
 
+        // record warn
         const entry = addWarn(interaction.guildId, user.id, interaction.user.id, reason);
 
-        
+        // DM warn (existing behaviour)
         let dmStatus = "✅ DM sent to user.";
         try {
           const dmEmbed = baseEmbed("⚠️ You Have Been Warned")
@@ -79,20 +76,9 @@ module.exports = {
               `You have received a warning in **${escapeMarkdown(interaction.guild.name)}**.`
             )
             .addFields(
-              {
-                name: "Reason",
-                value: clip(entry.reason, 1024),
-              },
-              {
-                name: "Warned By",
-                value: `${interaction.user.tag}`,
-                inline: true,
-              },
-              {
-                name: "Warning ID",
-                value: `\`${entry.id}\``,
-                inline: true,
-              }
+              { name: "Reason", value: clip(entry.reason, 1024) },
+              { name: "Warned By", value: `${interaction.user.tag}`, inline: true },
+              { name: "Warning ID", value: `\`${entry.id}\``, inline: true }
             )
             .setFooter({
               text: "Please review the server rules. Repeated warnings may lead to further moderation action.",
@@ -103,14 +89,40 @@ module.exports = {
           dmStatus = "⚠️ Could not DM user (DMs closed or blocked).";
         }
 
+        // attempt escalation (optional, per-guild config)
+        let escalationLine = "";
+        try {
+          const guild = interaction.guild;
+          const targetMember = await guild.members.fetch(user.id);
+
+          const esc = await maybeEscalateOnWarn({
+            guild,
+            client,
+            targetMember,
+            modUser: interaction.user,
+          });
+
+          if (esc.escalated) {
+            escalationLine =
+              `\n\n🚨 **Auto escalation triggered** (reached **${esc.rule.warns}** warns): ` +
+              `Timed out for **${esc.rule.durationStr}** (lifts ${esc.liftStamp})\n` +
+              `**Escalation Case ID:** \`${esc.caseId}\`` +
+              (esc.clearedWarns ? `\nWarns reset: **${esc.clearedWarns}** removed.` : "");
+          }
+        } catch (e) {
+          console.error("❌ escalation on warn failed:", e);
+          // don’t block warn flow
+        }
+
         await interaction.editReply(
           `⚠️ Warned **${user.tag}**\n` +
             `**ID:** \`${entry.id}\`\n` +
             `**Reason:** ${clip(entry.reason, 1000)}\n\n` +
-            `${dmStatus}`
+            `${dmStatus}` +
+            `${escalationLine}`
         );
 
-        
+        // log warn (and escalation note if triggered)
         const embed = baseEmbed("Warning Issued")
           .setThumbnail(interaction.guild.iconURL({ size: 128 }))
           .setDescription(
@@ -121,6 +133,13 @@ module.exports = {
             { name: "Reason", value: clip(entry.reason, 1024) },
             { name: "User DM", value: dmStatus, inline: true }
           );
+
+        if (escalationLine) {
+          embed.addFields({
+            name: "Auto Escalation",
+            value: clip(escalationLine.replace(/^\n+/, ""), 1024),
+          });
+        }
 
         setActor(embed, interaction.user);
         await sendToGuildLog(client, interaction.guildId, { embeds: [embed] });
@@ -135,10 +154,8 @@ module.exports = {
           return replyEphemeral(interaction, `✅ **${user.tag}** has no warnings.`);
         }
 
-        
         const sorted = warns.slice().sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0));
         const show = sorted.slice(0, 10);
-
         const lines = show.map(formatWarnLine).join("\n");
 
         return replyEphemeral(
@@ -153,44 +170,11 @@ module.exports = {
         await deferEphemeral(interaction);
 
         const removed = removeInfractionById(interaction.guildId, id);
-        if (!removed) {
+        if (!removed || removed.type !== "warn") {
           return interaction.editReply(`Couldn’t find a warning with ID \`${id}\`.`);
         }
 
-        await interaction.editReply(
-          `🧹 Removed warning \`${id}\` for <@${removed.userId}>.`
-        );
-
-        let dmStatus = "✅ DM sent to user.";
-          try {
-            const u = await client.users.fetch(removed.userId);
-
-            const dmEmbed = baseEmbed("✅ Warning Removed")
-              .setThumbnail(interaction.guild.iconURL({ size: 128 }))
-              .setDescription(
-                `A warning has been removed in **${escapeMarkdown(interaction.guild.name)}**.`
-              )
-              .addFields(
-                { name: "Removed By", value: `${interaction.user.tag}`, inline: true },
-                { name: "Warning ID", value: `\`${id}\``, inline: true }
-              )
-              .setFooter({ text: "If you have questions, contact the server staff." });
-
-            await u.send({ embeds: [dmEmbed] });
-          } catch {
-            dmStatus = "⚠️ Could not DM user (DMs closed or blocked).";
-          }
-
-        const embed = baseEmbed("Warning Removed")
-          .setThumbnail(interaction.guild.iconURL({ size: 128 }))
-          .setDescription(
-            `**User:** <@${removed.userId}> (ID: ${removed.userId})\n` +
-              `**Warning ID:** ${id}`
-          )
-          .addFields({ name: "User DM", value: dmStatus, inline: true });
-        setActor(embed, interaction.user);
-
-        await sendToGuildLog(client, interaction.guildId, { embeds: [embed] });
+        await interaction.editReply(`🧹 Removed warning \`${id}\` for <@${removed.userId}>.`);
         return;
       }
     } catch (err) {
