@@ -4,32 +4,53 @@ const { isMod } = require("../handlers/permissions");
 const { getGuildConfig } = require("../storage/guildConfig");
 const { ensureAutoReact, setAutoReactConfig } = require("../handlers/autoReact");
 
-function fmt(cfg) {
-  const chs = cfg.channelIds.length ? cfg.channelIds.map((id) => `<#${id}>`).join(", ") : "(none)";
-  const ems = cfg.emojis.length ? cfg.emojis.join(" ") : "(none)";
+function formatRule(channelId, r) {
+  const ems = (r.emojis || []).join(" ") || "(none)";
   return (
-    `**Enabled:** ${cfg.enabled ? "✅ yes" : "⛔ no"}\n` +
-    `**Channels:** ${chs}\n` +
-    `**Mode:** \`${cfg.mode}\`\n` +
-    `**Emojis:** ${ems}\n` +
-    `**Ignore bots:** ${cfg.ignoreBots ? "yes" : "no"}`
+    `**<#${channelId}>**\n` +
+    `• enabled: ${r.enabled ? "✅" : "⛔"}\n` +
+    `• mode: \`${r.mode}\`\n` +
+    `• emojis: ${ems}\n` +
+    `• ignore bots: ${r.ignoreBots ? "yes" : "no"}`
   );
+}
+
+function formatSummary(cfg) {
+  const rules = cfg.rules || {};
+  const channels = Object.keys(rules);
+
+  if (!channels.length) {
+    return `**AutoReact:** ${cfg.enabled ? "✅ enabled" : "⛔ disabled"}\nNo channels configured yet.`;
+  }
+
+  const lines = channels
+    .slice(0, 15)
+    .map((id) => {
+      const r = rules[id];
+      const em = (r.emojis || []).slice(0, 3).join(" ");
+      return `• <#${id}> — ${r.enabled ? "✅" : "⛔"} \`${r.mode}\` ${em}`;
+    })
+    .join("\n");
+
+  const extra = channels.length > 15 ? `\n…and ${channels.length - 15} more.` : "";
+
+  return `**AutoReact:** ${cfg.enabled ? "✅ enabled" : "⛔ disabled"}\n**Channels:**\n${lines}${extra}`;
 }
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("autoreact")
-    .setDescription("Auto-react to messages in configured channels")
+    .setDescription("Auto-react to messages per-channel")
     .addSubcommand((sc) =>
       sc
         .setName("enable")
-        .setDescription("Enable/disable auto-react")
+        .setDescription("Enable/disable auto-react globally")
         .addBooleanOption((o) => o.setName("enabled").setDescription("Enable?").setRequired(true))
     )
     .addSubcommand((sc) =>
       sc
-        .setName("add-channel")
-        .setDescription("Add a channel to auto-react in")
+        .setName("channel-add")
+        .setDescription("Add a channel rule (default: enabled, any, ✅)")
         .addChannelOption((o) =>
           o
             .setName("channel")
@@ -40,8 +61,8 @@ module.exports = {
     )
     .addSubcommand((sc) =>
       sc
-        .setName("remove-channel")
-        .setDescription("Remove a channel from auto-react")
+        .setName("channel-remove")
+        .setDescription("Remove a channel rule")
         .addChannelOption((o) =>
           o
             .setName("channel")
@@ -52,13 +73,23 @@ module.exports = {
     )
     .addSubcommand((sc) =>
       sc
-        .setName("mode")
-        .setDescription("Set react mode")
+        .setName("channel-set")
+        .setDescription("Update a channel's auto-react settings")
+        .addChannelOption((o) =>
+          o
+            .setName("channel")
+            .setDescription("Text channel")
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+            .setRequired(true)
+        )
+        .addBooleanOption((o) =>
+          o.setName("enabled").setDescription("Enable for this channel?").setRequired(false)
+        )
         .addStringOption((o) =>
           o
             .setName("mode")
             .setDescription("What messages to react to")
-            .setRequired(true)
+            .setRequired(false)
             .addChoices(
               { name: "any", value: "any" },
               { name: "images only", value: "images" },
@@ -66,22 +97,29 @@ module.exports = {
               { name: "both text+image", value: "both" }
             )
         )
-    )
-    .addSubcommand((sc) =>
-      sc
-        .setName("emojis")
-        .setDescription("Set emojis (space-separated, e.g. ✅ 🔥 ⭐)")
         .addStringOption((o) =>
-          o.setName("value").setDescription("Emoji list").setRequired(true)
+          o
+            .setName("emojis")
+            .setDescription('Space-separated emojis, e.g. "✅ 🔥 ⭐"')
+            .setRequired(false)
+        )
+        .addBooleanOption((o) =>
+          o.setName("ignore_bots").setDescription("Ignore bot messages?").setRequired(false)
         )
     )
     .addSubcommand((sc) =>
       sc
-        .setName("ignore-bots")
-        .setDescription("Ignore bot messages")
-        .addBooleanOption((o) => o.setName("enabled").setDescription("Ignore bots?").setRequired(true))
+        .setName("channel-view")
+        .setDescription("View a specific channel rule")
+        .addChannelOption((o) =>
+          o
+            .setName("channel")
+            .setDescription("Channel")
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+            .setRequired(true)
+        )
     )
-    .addSubcommand((sc) => sc.setName("view").setDescription("View current auto-react config"))
+    .addSubcommand((sc) => sc.setName("view").setDescription("View auto-react configuration summary"))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
   async execute(interaction) {
@@ -94,47 +132,80 @@ module.exports = {
       const cfg = ensureAutoReact(getGuildConfig(interaction.guildId));
       const sub = interaction.options.getSubcommand(true);
 
-      if (sub === "view") return replyEphemeral(interaction, fmt(cfg));
+      if (sub === "view") {
+        return replyEphemeral(interaction, formatSummary(cfg));
+      }
 
       if (sub === "enable") {
         const enabled = interaction.options.getBoolean("enabled", true);
         const next = setAutoReactConfig(interaction.guildId, { enabled });
-        return replyEphemeral(interaction, `✅ Updated.\n\n${fmt(next)}`);
+        return replyEphemeral(interaction, `✅ Updated.\n\n${formatSummary(next)}`);
       }
 
-      if (sub === "add-channel") {
+      if (sub === "channel-add") {
         const ch = interaction.options.getChannel("channel", true);
-        const next = setAutoReactConfig(interaction.guildId, { channelIds: [...cfg.channelIds, ch.id] });
-        return replyEphemeral(interaction, `✅ Added ${ch}.\n\n${fmt(next)}`);
+
+        const rules = { ...cfg.rules };
+        rules[ch.id] = rules[ch.id] || {
+          enabled: true,
+          mode: "any",
+          emojis: ["✅"],
+          ignoreBots: true,
+        };
+
+        const next = setAutoReactConfig(interaction.guildId, { rules });
+        return replyEphemeral(interaction, `✅ Rule created for ${ch}.\n\n${formatRule(ch.id, next.rules[ch.id])}`);
       }
 
-      if (sub === "remove-channel") {
+      if (sub === "channel-remove") {
         const ch = interaction.options.getChannel("channel", true);
-        const next = setAutoReactConfig(interaction.guildId, { channelIds: cfg.channelIds.filter((id) => id !== ch.id) });
-        return replyEphemeral(interaction, `✅ Removed ${ch}.\n\n${fmt(next)}`);
+
+        const rules = { ...cfg.rules };
+        const existed = Boolean(rules[ch.id]);
+        delete rules[ch.id];
+
+        const next = setAutoReactConfig(interaction.guildId, { rules });
+        return replyEphemeral(
+          interaction,
+          existed ? `🧹 Removed rule for ${ch}.\n\n${formatSummary(next)}` : `No rule existed for ${ch}.`
+        );
       }
 
-      if (sub === "mode") {
-        const mode = interaction.options.getString("mode", true);
-        const next = setAutoReactConfig(interaction.guildId, { mode });
-        return replyEphemeral(interaction, `✅ Mode set.\n\n${fmt(next)}`);
+      if (sub === "channel-view") {
+        const ch = interaction.options.getChannel("channel", true);
+        const r = cfg.rules[ch.id];
+        if (!r) return replyEphemeral(interaction, `No rule exists for ${ch}. Use \`/autoreact channel-add\` first.`);
+        return replyEphemeral(interaction, formatRule(ch.id, r));
       }
 
-      if (sub === "ignore-bots") {
-        const enabled = interaction.options.getBoolean("enabled", true);
-        const next = setAutoReactConfig(interaction.guildId, { ignoreBots: enabled });
-        return replyEphemeral(interaction, `✅ Updated.\n\n${fmt(next)}`);
-      }
-
-      if (sub === "emojis") {
+      if (sub === "channel-set") {
         await deferEphemeral(interaction);
-        const raw = interaction.options.getString("value", true).trim();
 
-        // split by spaces, keep tokens
-        const emojis = raw.split(/\s+/g).filter(Boolean);
+        const ch = interaction.options.getChannel("channel", true);
+        const enabled = interaction.options.getBoolean("enabled");
+        const mode = interaction.options.getString("mode");
+        const emojisRaw = interaction.options.getString("emojis");
+        const ignoreBots = interaction.options.getBoolean("ignore_bots");
 
-        const next = setAutoReactConfig(interaction.guildId, { emojis });
-        return interaction.editReply(`✅ Emojis set.\n\n${fmt(next)}`);
+        const rules = { ...cfg.rules };
+        const current = rules[ch.id] || {
+          enabled: true,
+          mode: "any",
+          emojis: ["✅"],
+          ignoreBots: true,
+        };
+
+        const nextRule = { ...current };
+
+        if (enabled !== null && enabled !== undefined) nextRule.enabled = enabled;
+        if (mode) nextRule.mode = mode;
+        if (ignoreBots !== null && ignoreBots !== undefined) nextRule.ignoreBots = ignoreBots;
+        if (emojisRaw) nextRule.emojis = emojisRaw.trim().split(/\s+/g).filter(Boolean);
+
+        rules[ch.id] = nextRule;
+
+        const next = setAutoReactConfig(interaction.guildId, { rules });
+        return interaction.editReply(`✅ Updated ${ch}.\n\n${formatRule(ch.id, next.rules[ch.id])}`);
       }
 
       return replyEphemeral(interaction, "Unknown subcommand.");

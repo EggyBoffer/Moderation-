@@ -1,30 +1,76 @@
 const { PermissionFlagsBits } = require("discord.js");
 const { getGuildConfig, setGuildConfig } = require("../storage/guildConfig");
 
+/**
+ * AutoReact config format (per guild)
+ *
+ * autoReact: {
+ *   enabled: true,
+ *   rules: {
+ *     [channelId]: {
+ *       enabled: true,
+ *       mode: "any" | "images" | "text" | "both",
+ *       emojis: ["✅", "🔥"],
+ *       ignoreBots: true
+ *     }
+ *   }
+ * }
+ */
+
 function ensureAutoReact(cfg) {
   const ar = cfg.autoReact || {};
+  const rulesRaw = ar.rules && typeof ar.rules === "object" ? ar.rules : {};
+
+  const rules = {};
+  for (const [channelId, r] of Object.entries(rulesRaw)) {
+    rules[channelId] = {
+      enabled: r?.enabled !== false, // default true for an existing rule
+      mode: typeof r?.mode === "string" ? r.mode : "any",
+      emojis: Array.isArray(r?.emojis) && r.emojis.length ? r.emojis : ["✅"],
+      ignoreBots: r?.ignoreBots !== false, // default true
+    };
+  }
+
   return {
     enabled: Boolean(ar.enabled),
-    channelIds: Array.isArray(ar.channelIds) ? ar.channelIds : [],
-    // "any" | "images" | "text" | "both"
-    mode: typeof ar.mode === "string" ? ar.mode : "any",
-    // up to a few emojis. store as strings like "🔥" or custom "<:name:id>"
-    emojis: Array.isArray(ar.emojis) ? ar.emojis : ["✅"],
-    ignoreBots: ar.ignoreBots !== false, // default true
+    rules,
   };
 }
 
 function setAutoReactConfig(guildId, updates) {
   const cfg = getGuildConfig(guildId);
   const current = ensureAutoReact(cfg);
-  const next = { ...current, ...updates };
 
-  // clean
-  next.channelIds = Array.from(new Set((next.channelIds || []).filter(Boolean)));
-  next.emojis = Array.from(new Set((next.emojis || []).filter(Boolean))).slice(0, 10);
+  const next = {
+    ...current,
+    ...updates,
+    rules: { ...current.rules, ...(updates.rules || {}) },
+  };
+
+  // Clean / normalize rules
+  const cleaned = {};
+  for (const [channelId, r] of Object.entries(next.rules || {})) {
+    if (!channelId) continue;
+
+    const emojis = Array.from(new Set((r.emojis || []).filter(Boolean))).slice(0, 10);
+    cleaned[channelId] = {
+      enabled: r.enabled !== false,
+      mode: typeof r.mode === "string" ? r.mode : "any",
+      emojis: emojis.length ? emojis : ["✅"],
+      ignoreBots: r.ignoreBots !== false,
+    };
+  }
+  next.rules = cleaned;
 
   setGuildConfig(guildId, { autoReact: next });
   return next;
+}
+
+function getRuleForChannel(cfg, channelId) {
+  if (!cfg.enabled) return null;
+  const rule = cfg.rules?.[channelId];
+  if (!rule || rule.enabled === false) return null;
+  return rule;
 }
 
 function hasImageAttachment(message) {
@@ -34,7 +80,6 @@ function hasImageAttachment(message) {
   for (const [, a] of atts) {
     const ct = (a.contentType || "").toLowerCase();
     const name = (a.name || "").toLowerCase();
-
     if (ct.startsWith("image/")) return true;
     if (/\.(png|jpe?g|gif|webp|bmp)$/i.test(name)) return true;
   }
@@ -47,7 +92,9 @@ function hasTextContent(message) {
 }
 
 function shouldReact(mode, message) {
-  const img = hasImageAttachment(message) || (message.embeds || []).some((e) => e?.image?.url);
+  const img =
+    hasImageAttachment(message) ||
+    (message.embeds || []).some((e) => e?.image?.url);
   const text = hasTextContent(message);
 
   if (mode === "images") return img;
@@ -57,7 +104,6 @@ function shouldReact(mode, message) {
 }
 
 async function tryReact(message, emojis) {
-  // bot needs AddReactions + ReadMessageHistory in that channel
   const me = message.guild.members.me;
   if (!me) return;
 
@@ -69,7 +115,7 @@ async function tryReact(message, emojis) {
     try {
       await message.react(em);
     } catch {
-      // ignore invalid emoji or missing perms
+      // ignore invalid emoji / missing perms
     }
   }
 }
@@ -77,6 +123,7 @@ async function tryReact(message, emojis) {
 module.exports = {
   ensureAutoReact,
   setAutoReactConfig,
+  getRuleForChannel,
   shouldReact,
   tryReact,
 };

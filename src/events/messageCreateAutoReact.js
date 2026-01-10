@@ -1,6 +1,6 @@
 const { Events } = require("discord.js");
 const { getGuildConfig } = require("../storage/guildConfig");
-const { ensureAutoReact, shouldReact, tryReact } = require("../handlers/autoReact");
+const { ensureAutoReact, getRuleForChannel, shouldReact, tryReact } = require("../handlers/autoReact");
 
 module.exports = {
   name: Events.MessageCreate,
@@ -9,14 +9,14 @@ module.exports = {
       if (!message.guild || message.author?.system) return;
 
       const cfg = ensureAutoReact(getGuildConfig(message.guild.id));
+      const rule = getRuleForChannel(cfg, message.channel.id);
+      if (!rule) return;
 
-      if (!cfg.enabled) return;
-      if (!cfg.channelIds.includes(message.channel.id)) return;
-      if (cfg.ignoreBots && message.author?.bot) return;
+      if (rule.ignoreBots && message.author?.bot) return;
 
-      if (!shouldReact(cfg.mode, message)) return;
+      if (!shouldReact(rule.mode, message)) return;
 
-      await tryReact(message, cfg.emojis);
+      await tryReact(message, rule.emojis);
     } catch (err) {
       console.error("❌ messageCreate auto-react error:", err);
     }
