@@ -6,7 +6,7 @@ const { updateCountsForGuild } = require("../handlers/updateCounts");
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName("counts")
+    .setName("statcounts")
     .setDescription("Member/user/bot count channels")
     .addSubcommand((sc) =>
       sc
@@ -54,7 +54,10 @@ module.exports = {
 
       const member = interaction.member;
       if (!member.permissions?.has(PermissionFlagsBits.ManageGuild)) {
-        return replyEphemeral(interaction, "You need **Manage Server** to configure counts.");
+        return replyEphemeral(
+          interaction,
+          "You need **Manage Server** to configure stat counts."
+        );
       }
 
       const sub = interaction.options.getSubcommand(true);
@@ -76,32 +79,38 @@ module.exports = {
         await updateCountsForGuild(interaction.guild, { force: true });
 
         return interaction.editReply(
-          `✅ Count channels configured under **${category.name}**.\n` +
-            `Use \`/counts refresh\` if you ever need to resync.`
+          `✅ Stat count channels configured under **${category.name}**.\n` +
+            `Use \`/statcounts refresh\` if you ever need to resync.`
         );
       }
 
       if (sub === "refresh") {
         const cfg = getGuildConfig(interaction.guildId);
         if (!cfg.countsCategoryId) {
-          return replyEphemeral(interaction, "Counts aren’t set up yet. Use `/counts setup` first.");
+          return replyEphemeral(
+            interaction,
+            "Stat counts aren’t set up yet. Use `/statcounts setup` first."
+          );
         }
 
         await deferEphemeral(interaction);
         await updateCountsForGuild(interaction.guild, { force: true });
-        return interaction.editReply("✅ Counts refreshed.");
+        return interaction.editReply("✅ Stat counts refreshed.");
       }
 
       if (sub === "disable") {
         setGuildConfig(interaction.guildId, { countsCategoryId: null });
-        return replyEphemeral(interaction, "✅ Counts disabled. (Existing channels were not deleted.)");
+        return replyEphemeral(
+          interaction,
+          "✅ Stat counts disabled. (Existing channels were not deleted.)"
+        );
       }
     } catch (err) {
-      console.error("❌ counts command error:", err);
+      console.error("❌ statcounts command error:", err);
       if (interaction.deferred || interaction.replied) {
-        await interaction.editReply("Something went wrong running counts.");
+        await interaction.editReply("Something went wrong running statcounts.");
       } else {
-        await replyEphemeral(interaction, "Something went wrong running counts.");
+        await replyEphemeral(interaction, "Something went wrong running statcounts.");
       }
     }
   },
