@@ -53,6 +53,14 @@ function getEntries(cfg) {
   return Array.isArray(cfg.timeChannels) ? cfg.timeChannels : [];
 }
 
+function withTimeout(promise, ms, label = "update") {
+  let t;
+  const timeout = new Promise((_, reject) => {
+    t = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(t));
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("timechannels")
@@ -163,6 +171,26 @@ module.exports = {
 
       const sub = interaction.options.getSubcommand(true);
 
+      const safeRefresh = async () => {
+        // Important: never hang the interaction forever
+        try {
+          await withTimeout(
+            updateTimeChannelsForGuild(interaction.guild, { force: true }),
+            12_000,
+            "time channel refresh"
+          );
+          return { ok: true, msg: "✅ Updated immediately." };
+        } catch (err) {
+          console.warn("⚠️ timechannels refresh issue:", err?.message || err);
+          return {
+            ok: false,
+            msg:
+              "⚠️ Saved the setting, but Discord is being slow right now.\n" +
+              "It’ll still update automatically within the next minute.",
+          };
+        }
+      };
+
       if (sub === "setup") {
         const category = interaction.options.getChannel("category", true);
         const locale = interaction.options.getString("locale");
@@ -173,11 +201,12 @@ module.exports = {
         });
 
         await deferEphemeral(interaction);
-        await updateTimeChannelsForGuild(interaction.guild, { force: true });
+        const res = await safeRefresh();
 
         return interaction.editReply(
           `✅ Time channels configured under **${category.name}**.\n` +
-            `Add zones with \`/timechannels add\`.`
+            `Now add zones with \`/timechannels add\`.\n` +
+            res.msg
         );
       }
 
@@ -211,14 +240,13 @@ module.exports = {
           const next = entries.map((e) =>
             normZone(e.timeZone) === tz ? { ...e, label } : e
           );
-
           setGuildConfig(interaction.guildId, { timeChannels: next });
 
           await deferEphemeral(interaction);
-          await updateTimeChannelsForGuild(interaction.guild, { force: true });
+          const res = await safeRefresh();
 
           return interaction.editReply(
-            `✅ Updated **${tz}** label to: **${label}**`
+            `✅ Updated **${tz}** label to: **${label}**\n${res.msg}`
           );
         }
 
@@ -227,9 +255,9 @@ module.exports = {
         });
 
         await deferEphemeral(interaction);
-        await updateTimeChannelsForGuild(interaction.guild, { force: true });
+        const res = await safeRefresh();
 
-        return interaction.editReply(`✅ Added timezone: **${tz}**`);
+        return interaction.editReply(`✅ Added timezone: **${tz}**\n${res.msg}`);
       }
 
       if (sub === "label") {
@@ -250,20 +278,17 @@ module.exports = {
         const next = entries.map((e) =>
           normZone(e.timeZone) === tz ? { ...e, label } : e
         );
-
         setGuildConfig(interaction.guildId, { timeChannels: next });
 
         await deferEphemeral(interaction);
-        await updateTimeChannelsForGuild(interaction.guild, { force: true });
+        const res = await safeRefresh();
 
-        return interaction.editReply(`✅ Renamed **${tz}** to: **${label}**`);
+        return interaction.editReply(`✅ Renamed **${tz}** to: **${label}**\n${res.msg}`);
       }
 
       if (sub === "remove") {
         const tz = normZone(interaction.options.getString("timezone", true));
-        const deleteChannel = Boolean(
-          interaction.options.getBoolean("delete_channel")
-        );
+        const deleteChannel = Boolean(interaction.options.getBoolean("delete_channel"));
 
         const cfg = getGuildConfig(interaction.guildId);
         const entries = getEntries(cfg);
@@ -279,9 +304,7 @@ module.exports = {
         if (deleteChannel && target.channelId) {
           const ch =
             interaction.guild.channels.cache.get(target.channelId) ||
-            (await interaction.guild.channels
-              .fetch(target.channelId)
-              .catch(() => null));
+            (await interaction.guild.channels.fetch(target.channelId).catch(() => null));
 
           if (ch && ch.type === ChannelType.GuildVoice) {
             await ch.delete("TimeChannels removed by admin").catch(() => null);
@@ -289,9 +312,9 @@ module.exports = {
         }
 
         await deferEphemeral(interaction);
-        await updateTimeChannelsForGuild(interaction.guild, { force: true });
+        const res = await safeRefresh();
 
-        return interaction.editReply(`✅ Removed timezone: **${tz}**`);
+        return interaction.editReply(`✅ Removed timezone: **${tz}**\n${res.msg}`);
       }
 
       if (sub === "list") {
@@ -315,9 +338,7 @@ module.exports = {
 
         return replyEphemeral(
           interaction,
-          `**Time Channels**\n` +
-            `• Category: <#${categoryId}>\n` +
-            lines.join("\n")
+          `**Time Channels**\n• Category: <#${categoryId}>\n` + lines.join("\n")
         );
       }
 
@@ -331,8 +352,8 @@ module.exports = {
         }
 
         await deferEphemeral(interaction);
-        await updateTimeChannelsForGuild(interaction.guild, { force: true });
-        return interaction.editReply("✅ Time channels refreshed.");
+        const res = await safeRefresh();
+        return interaction.editReply(`✅ Refresh requested.\n${res.msg}`);
       }
 
       if (sub === "disable") {
@@ -344,11 +365,13 @@ module.exports = {
       }
     } catch (err) {
       console.error("❌ timechannels command error:", err);
-      if (interaction.deferred || interaction.replied) {
-        await interaction.editReply("Something went wrong running timechannels.");
-      } else {
-        await replyEphemeral(interaction, "Something went wrong running timechannels.");
-      }
+      try {
+        if (interaction.deferred || interaction.replied) {
+          await interaction.editReply("Something went wrong running timechannels.");
+        } else {
+          await replyEphemeral(interaction, "Something went wrong running timechannels.");
+        }
+      } catch {}
     }
   },
 };
