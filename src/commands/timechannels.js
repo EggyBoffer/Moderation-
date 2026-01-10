@@ -6,7 +6,10 @@ const {
 
 const { replyEphemeral, deferEphemeral } = require("../handlers/interactionReply");
 const { getGuildConfig, setGuildConfig } = require("../storage/guildConfig");
-const { updateTimeChannelsForGuild } = require("../handlers/timeChannels");
+const {
+  updateTimeChannelsForGuild,
+  repairTimeChannelsForGuild,
+} = require("../handlers/timeChannels");
 
 // Discord only allows up to 25 choices per string option.
 const COMMON_TIMEZONES = [
@@ -150,6 +153,17 @@ module.exports = {
     )
     .addSubcommand((sc) =>
       sc
+        .setName("repair")
+        .setDescription("Repair config links and optionally delete duplicate channels")
+        .addBooleanOption((opt) =>
+          opt
+            .setName("delete_duplicates")
+            .setDescription("Delete duplicate channels (keeps one per label)")
+            .setRequired(false)
+        )
+    )
+    .addSubcommand((sc) =>
+      sc
         .setName("disable")
         .setDescription("Disable time channels (does not delete channels)")
     )
@@ -172,11 +186,10 @@ module.exports = {
       const sub = interaction.options.getSubcommand(true);
 
       const safeRefresh = async () => {
-        // Important: never hang the interaction forever
         try {
           await withTimeout(
             updateTimeChannelsForGuild(interaction.guild, { force: true }),
-            12_000,
+            15_000,
             "time channel refresh"
           );
           return { ok: true, msg: "✅ Updated immediately." };
@@ -283,12 +296,16 @@ module.exports = {
         await deferEphemeral(interaction);
         const res = await safeRefresh();
 
-        return interaction.editReply(`✅ Renamed **${tz}** to: **${label}**\n${res.msg}`);
+        return interaction.editReply(
+          `✅ Renamed **${tz}** to: **${label}**\n${res.msg}`
+        );
       }
 
       if (sub === "remove") {
         const tz = normZone(interaction.options.getString("timezone", true));
-        const deleteChannel = Boolean(interaction.options.getBoolean("delete_channel"));
+        const deleteChannel = Boolean(
+          interaction.options.getBoolean("delete_channel")
+        );
 
         const cfg = getGuildConfig(interaction.guildId);
         const entries = getEntries(cfg);
@@ -304,7 +321,9 @@ module.exports = {
         if (deleteChannel && target.channelId) {
           const ch =
             interaction.guild.channels.cache.get(target.channelId) ||
-            (await interaction.guild.channels.fetch(target.channelId).catch(() => null));
+            (await interaction.guild.channels
+              .fetch(target.channelId)
+              .catch(() => null));
 
           if (ch && ch.type === ChannelType.GuildVoice) {
             await ch.delete("TimeChannels removed by admin").catch(() => null);
@@ -332,7 +351,7 @@ module.exports = {
         const lines = entries.map((e) => {
           const tz = normZone(e.timeZone);
           const label = normLabel(e.label) || tz;
-          const ch = e.channelId ? `<#${e.channelId}>` : "*not created yet*";
+          const ch = e.channelId ? `<#${e.channelId}>` : "*not linked yet*";
           return `• **${tz}** — "${label}" — ${ch}`;
         });
 
@@ -354,6 +373,28 @@ module.exports = {
         await deferEphemeral(interaction);
         const res = await safeRefresh();
         return interaction.editReply(`✅ Refresh requested.\n${res.msg}`);
+      }
+
+      if (sub === "repair") {
+        const deleteDuplicates = Boolean(
+          interaction.options.getBoolean("delete_duplicates")
+        );
+
+        await deferEphemeral(interaction);
+
+        const { fixed, deleted } = await repairTimeChannelsForGuild(interaction.guild, {
+          deleteDuplicates,
+        });
+
+        // After repair, force an update
+        const res = await safeRefresh();
+
+        return interaction.editReply(
+          `🧰 Repair complete.\n` +
+            `• Relinked entries: **${fixed}**\n` +
+            `• Deleted duplicates: **${deleted}**\n` +
+            `${res.msg}`
+        );
       }
 
       if (sub === "disable") {
