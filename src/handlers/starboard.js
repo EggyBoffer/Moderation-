@@ -1,16 +1,91 @@
 const { EmbedBuilder, PermissionFlagsBits } = require("discord.js");
 const { getGuildConfig, setGuildConfig } = require("../storage/guildConfig");
 
-function ensureStarboard(cfg) {
-  const sb = cfg.starboard || {};
+/**
+ * MULTI-STARBOARD CONFIG (per guild)
+ *
+ * starboards: {
+ *   enabled: true,
+ *   boards: {
+ *     [boardId]: {
+ *       enabled: true,
+ *       channelId: "starboardChannelId",
+ *       watchChannelIds: ["123", "456"],
+ *       emoji: "⭐" OR "<:name:id>",
+ *       threshold: 3,
+ *       ignoreBots: true,
+ *       excludeSelf: true
+ *     }
+ *   }
+ * }
+ *
+ * starboardIndex: {
+ *   [boardId]: {
+ *     [sourceMessageId]: { starboardMessageId: "xyz", lastCount: 4 }
+ *   }
+ * }
+ */
+
+function normalizeBoardId(name) {
+  return String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-_]/g, "")
+    .slice(0, 32);
+}
+
+function ensureMultiStarboards(cfg) {
+  // Migration: if old single config exists as cfg.starboard, wrap into default board
+  if (!cfg.starboards && cfg.starboard) {
+    const old = cfg.starboard || {};
+    cfg.starboards = {
+      enabled: Boolean(old.enabled),
+      boards: {
+        default: {
+          enabled: Boolean(old.enabled),
+          channelId: old.starboardChannelId || null,
+          watchChannelIds: Array.isArray(old.watchChannelIds) ? old.watchChannelIds : [],
+          emoji: typeof old.emoji === "string" ? old.emoji : "⭐",
+          threshold: Number.isFinite(old.threshold) ? old.threshold : 3,
+          ignoreBots: old.ignoreBots !== false,
+          excludeSelf: old.excludeSelf !== false,
+        },
+      },
+    };
+
+    // keep existing index if present; otherwise create per-board index
+    if (!cfg.starboardIndex || typeof cfg.starboardIndex !== "object") cfg.starboardIndex = {};
+    if (!cfg.starboardIndex.default) cfg.starboardIndex.default = {};
+
+    // Persist migration so it sticks
+    setGuildConfig(cfg.guildId || cfg.id || cfg._guildId || undefined, {}); // no-op if unknown
+    // We can’t reliably know guildId from cfg here, so we don’t hard-persist in this function.
+    // The command layer will persist on next config write.
+  }
+
+  const sb = cfg.starboards || {};
+  const boardsRaw = sb.boards && typeof sb.boards === "object" ? sb.boards : {};
+
+  const boards = {};
+  for (const [id, b] of Object.entries(boardsRaw)) {
+    if (!id) continue;
+    boards[id] = {
+      enabled: b?.enabled !== false,
+      channelId: b?.channelId || null,
+      watchChannelIds: Array.isArray(b?.watchChannelIds) ? Array.from(new Set(b.watchChannelIds.filter(Boolean))) : [],
+      emoji: typeof b?.emoji === "string" ? b.emoji : "⭐",
+      threshold: Number.isFinite(b?.threshold) ? b.threshold : 3,
+      ignoreBots: b?.ignoreBots !== false,
+      excludeSelf: b?.excludeSelf !== false,
+    };
+
+    if (typeof boards[id].threshold !== "number" || boards[id].threshold < 1) boards[id].threshold = 1;
+  }
+
   return {
     enabled: Boolean(sb.enabled),
-    starboardChannelId: sb.starboardChannelId || null,
-    watchChannelIds: Array.isArray(sb.watchChannelIds) ? sb.watchChannelIds : [],
-    emoji: typeof sb.emoji === "string" ? sb.emoji : "⭐",
-    threshold: Number.isFinite(sb.threshold) ? sb.threshold : 3,
-    ignoreBots: sb.ignoreBots !== false, // default true
-    excludeSelf: sb.excludeSelf !== false, // default true
+    boards,
   };
 }
 
@@ -19,50 +94,63 @@ function ensureIndex(cfg) {
   return cfg.starboardIndex;
 }
 
-function setStarboardConfig(guildId, updates) {
+function setStarboardsConfig(guildId, updates) {
   const cfg = getGuildConfig(guildId);
-  const current = ensureStarboard(cfg);
-  const next = { ...current, ...updates };
+  const current = ensureMultiStarboards(cfg);
 
-  next.watchChannelIds = Array.from(new Set((next.watchChannelIds || []).filter(Boolean)));
-  if (typeof next.threshold !== "number" || next.threshold < 1) next.threshold = 1;
+  const next = {
+    ...current,
+    ...updates,
+    boards: { ...current.boards, ...(updates.boards || {}) },
+  };
 
-  setGuildConfig(guildId, { starboard: next });
+  // Clean
+  const cleaned = {};
+  for (const [id, b] of Object.entries(next.boards || {})) {
+    if (!id) continue;
+    cleaned[id] = {
+      enabled: b.enabled !== false,
+      channelId: b.channelId || null,
+      watchChannelIds: Array.from(new Set((b.watchChannelIds || []).filter(Boolean))),
+      emoji: typeof b.emoji === "string" ? b.emoji : "⭐",
+      threshold: Number.isFinite(b.threshold) ? b.threshold : 3,
+      ignoreBots: b.ignoreBots !== false,
+      excludeSelf: b.excludeSelf !== false,
+    };
+    if (cleaned[id].threshold < 1) cleaned[id].threshold = 1;
+  }
+  next.boards = cleaned;
+
+  setGuildConfig(guildId, { starboards: next });
   return next;
 }
 
 function emojiMatches(reaction, emojiStr) {
-  // For unicode emoji, reaction.emoji.name is the character.
-  // For custom, you can configure "<:name:id>" or just "name:id" or id.
   const cfg = String(emojiStr || "").trim();
-
   const name = reaction.emoji?.name || "";
   const id = reaction.emoji?.id || "";
 
   if (!cfg) return false;
-
-  if (cfg === name) return true; // unicode or custom name match
-  if (id && cfg.includes(id)) return true; // matches "<:x:id>" or "name:id"
+  if (cfg === name) return true;           // unicode or custom emoji name
+  if (id && cfg.includes(id)) return true; // "<:x:id>" or "name:id"
   if (id && cfg === id) return true;
-
   return false;
 }
 
-async function countValidStars(reaction, message, cfg) {
-  // fetch users to count unique non-bot, optionally excluding author self-star
+async function countValidStars(reaction, message, boardCfg) {
   const users = await reaction.users.fetch().catch(() => null);
   if (!users) return reaction.count || 0;
 
   let count = 0;
   for (const [, u] of users) {
-    if (cfg.ignoreBots && u.bot) continue;
-    if (cfg.excludeSelf && message.author?.id && u.id === message.author.id) continue;
+    if (boardCfg.ignoreBots && u.bot) continue;
+    if (boardCfg.excludeSelf && message.author?.id && u.id === message.author.id) continue;
     count++;
   }
   return count;
 }
 
-function buildStarboardEmbed(message, starCount, cfg) {
+function buildStarboardEmbed(message, starCount, boardCfg) {
   const e = new EmbedBuilder()
     .setAuthor({
       name: message.author?.tag || "Unknown",
@@ -71,31 +159,47 @@ function buildStarboardEmbed(message, starCount, cfg) {
     .setDescription(message.content?.length ? message.content.slice(0, 4000) : "(no text)")
     .addFields(
       { name: "Channel", value: `<#${message.channel.id}>`, inline: true },
-      { name: "Stars", value: `${cfg.emoji} **${starCount}**`, inline: true }
+      { name: "Stars", value: `${boardCfg.emoji} **${starCount}**`, inline: true }
     )
     .setTimestamp(message.createdAt || new Date());
 
-  // Attach first image if present
   const att = message.attachments?.find((a) => (a.contentType || "").startsWith("image/"));
   if (att?.url) e.setImage(att.url);
 
-  // If embeds already contain an image, use it
   const embImg = (message.embeds || []).find((x) => x?.image?.url)?.image?.url;
   if (!att?.url && embImg) e.setImage(embImg);
 
   return e;
 }
 
-async function upsertStarboardEntry(client, message, starCount) {
-  const cfgRaw = getGuildConfig(message.guild.id);
-  const cfg = ensureStarboard(cfgRaw);
-  if (!cfg.enabled) return { ok: true, skipped: "disabled" };
-  if (!cfg.starboardChannelId) return { ok: true, skipped: "no-channel" };
-  if (!cfg.watchChannelIds.includes(message.channel.id)) return { ok: true, skipped: "not-watched" };
+async function upsertBoardEntry(client, message, boardId, boardCfg, starCount) {
+  if (starCount < boardCfg.threshold) {
+    // delete if exists
+    const cfg = getGuildConfig(message.guild.id);
+    const index = ensureIndex(cfg);
+    if (!index[boardId]) index[boardId] = {};
+
+    const existing = index[boardId][message.id];
+    if (existing?.starboardMessageId && boardCfg.channelId) {
+      const sbChannel =
+        message.guild.channels.cache.get(boardCfg.channelId) ||
+        (await message.guild.channels.fetch(boardCfg.channelId).catch(() => null));
+      if (sbChannel) {
+        const old = await sbChannel.messages.fetch(existing.starboardMessageId).catch(() => null);
+        if (old) await old.delete().catch(() => null);
+      }
+      delete index[boardId][message.id];
+      setGuildConfig(message.guild.id, { starboardIndex: index });
+      return { ok: true, removed: true };
+    }
+    return { ok: true, below: true };
+  }
+
+  if (!boardCfg.channelId) return { ok: true, skipped: "no-channel" };
 
   const sbChannel =
-    message.guild.channels.cache.get(cfg.starboardChannelId) ||
-    (await message.guild.channels.fetch(cfg.starboardChannelId).catch(() => null));
+    message.guild.channels.cache.get(boardCfg.channelId) ||
+    (await message.guild.channels.fetch(boardCfg.channelId).catch(() => null));
   if (!sbChannel) return { ok: false, error: "Starboard channel not found" };
 
   const me = message.guild.members.me;
@@ -105,73 +209,86 @@ async function upsertStarboardEntry(client, message, starCount) {
   if (!perms?.has(PermissionFlagsBits.SendMessages)) return { ok: false, error: "Missing SendMessages" };
   if (!perms?.has(PermissionFlagsBits.EmbedLinks)) return { ok: false, error: "Missing EmbedLinks" };
 
-  const fullCfg = getGuildConfig(message.guild.id);
-  const index = ensureIndex(fullCfg);
-  const key = message.id;
+  const cfg = getGuildConfig(message.guild.id);
+  const index = ensureIndex(cfg);
+  if (!index[boardId]) index[boardId] = {};
 
   const jump = message.url;
-  const contentTop = `${cfg.emoji} **${starCount}** • [Jump to message](${jump})`;
+  const contentTop = `${boardCfg.emoji} **${starCount}** • [Jump to message](${jump}) • \`${boardId}\``;
 
-  // below threshold: delete if exists
-  if (starCount < cfg.threshold) {
-    const existing = index[key];
-    if (existing?.starboardMessageId) {
-      const old = await sbChannel.messages.fetch(existing.starboardMessageId).catch(() => null);
-      if (old) await old.delete().catch(() => null);
-      delete index[key];
-      setGuildConfig(message.guild.id, { starboardIndex: index });
-      return { ok: true, removed: true };
-    }
-    return { ok: true, below: true };
-  }
+  const embed = buildStarboardEmbed(message, starCount, boardCfg);
 
-  const embed = buildStarboardEmbed(message, starCount, cfg);
-
-  const existing = index[key];
+  const existing = index[boardId][message.id];
   if (existing?.starboardMessageId) {
     const old = await sbChannel.messages.fetch(existing.starboardMessageId).catch(() => null);
     if (old) {
       await old.edit({ content: contentTop, embeds: [embed] }).catch(() => null);
-      index[key] = { starboardMessageId: old.id, lastCount: starCount };
+      index[boardId][message.id] = { starboardMessageId: old.id, lastCount: starCount };
       setGuildConfig(message.guild.id, { starboardIndex: index });
       return { ok: true, updated: true, starboardMessageId: old.id };
     }
   }
 
   const sent = await sbChannel.send({ content: contentTop, embeds: [embed] });
-  index[key] = { starboardMessageId: sent.id, lastCount: starCount };
+  index[boardId][message.id] = { starboardMessageId: sent.id, lastCount: starCount };
   setGuildConfig(message.guild.id, { starboardIndex: index });
 
   return { ok: true, created: true, starboardMessageId: sent.id };
 }
 
+async function handleStarReaction(client, reaction) {
+  if (reaction.partial) await reaction.fetch().catch(() => null);
+  const message = reaction.message;
+  if (!message?.guild) return;
+
+  if (message.partial) await message.fetch().catch(() => null);
+  if (!message.author) return;
+
+  const cfg = getGuildConfig(message.guild.id);
+  const multi = ensureMultiStarboards(cfg);
+  if (!multi.enabled) return;
+
+  // For every board that watches this channel and matches emoji, upsert
+  for (const [boardId, b] of Object.entries(multi.boards)) {
+    if (!b.enabled) continue;
+    if (!b.watchChannelIds.includes(message.channel.id)) continue;
+    if (!emojiMatches(reaction, b.emoji)) continue;
+
+    const stars = await countValidStars(reaction, message, b);
+    await upsertBoardEntry(client, message, boardId, b, stars);
+  }
+}
+
 async function cleanupOnMessageDelete(guild, deletedMessageId) {
   const cfg = getGuildConfig(guild.id);
+  const multi = ensureMultiStarboards(cfg);
   const index = ensureIndex(cfg);
 
-  const entry = index[deletedMessageId];
-  if (!entry?.starboardMessageId) return;
+  for (const [boardId, entries] of Object.entries(index)) {
+    const entry = entries?.[deletedMessageId];
+    if (!entry?.starboardMessageId) continue;
 
-  const sb = ensureStarboard(cfg);
-  if (!sb.starboardChannelId) return;
+    const board = multi.boards?.[boardId];
+    if (!board?.channelId) continue;
 
-  const sbChannel =
-    guild.channels.cache.get(sb.starboardChannelId) ||
-    (await guild.channels.fetch(sb.starboardChannelId).catch(() => null));
-  if (!sbChannel) return;
+    const sbChannel =
+      guild.channels.cache.get(board.channelId) ||
+      (await guild.channels.fetch(board.channelId).catch(() => null));
+    if (!sbChannel) continue;
 
-  const msg = await sbChannel.messages.fetch(entry.starboardMessageId).catch(() => null);
-  if (msg) await msg.delete().catch(() => null);
+    const msg = await sbChannel.messages.fetch(entry.starboardMessageId).catch(() => null);
+    if (msg) await msg.delete().catch(() => null);
 
-  delete index[deletedMessageId];
+    delete index[boardId][deletedMessageId];
+  }
+
   setGuildConfig(guild.id, { starboardIndex: index });
 }
 
 module.exports = {
-  ensureStarboard,
-  setStarboardConfig,
-  emojiMatches,
-  countValidStars,
-  upsertStarboardEntry,
+  normalizeBoardId,
+  ensureMultiStarboards,
+  setStarboardsConfig,
+  handleStarReaction,
   cleanupOnMessageDelete,
 };
