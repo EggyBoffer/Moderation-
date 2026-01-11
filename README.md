@@ -1,5 +1,30 @@
 # Moderation+
 
+<!-- Moderation+ README -->
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/eggyboffer/Moderation-/main/.github/banner.png" alt="Moderation+ Banner" />
+</p>
+
+<p align="center">
+  <strong>One bot. All your moderation. No bloat.</strong>
+</p>
+
+<p align="center">
+  <a href="https://discord.com/oauth2/authorize?client_id=1459939265935839388&permissions=8&integration_type=0&scope=applications.commands+bot">
+    <img src="https://img.shields.io/badge/Add%20to%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Add to Discord" />
+  </a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Open%20Source-Yes-success?style=flat-square" />
+  <img src="https://img.shields.io/badge/discord.js-v14-blue?style=flat-square" />
+  <img src="https://img.shields.io/badge/Node.js-%E2%89%A518-green?style=flat-square" />
+  <img src="https://img.shields.io/badge/Actively%20Developed-Yes-brightgreen?style=flat-square" />
+</p>
+
+---
+
 **One bot. All your moderation. No bloat.**
 
 Moderation+ is a powerful, modern Discord moderation bot designed to replace multiple third-party bots with a single, configurable system - without sacrificing control, reliability, or transparency.
