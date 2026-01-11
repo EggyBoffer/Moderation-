@@ -35,13 +35,16 @@ module.exports = {
 
       const embed = new EmbedBuilder()
         .setTitle(`ℹ️ ${meta.name}`)
-        .setDescription(meta.tagline || "A multi-server moderation bot with built-in utilities.")
+        .setDescription(meta.tagline || meta.description || "A multi-server moderation bot with built-in utilities.")
         .addFields(
           { name: "Version", value: `\`${meta.version}\``, inline: true },
           { name: "Author", value: meta.author || "Unknown", inline: true },
+          { name: "Maintainer", value: meta.maintainer || "Unknown", inline: true },
+
           { name: "Uptime", value: formatUptime(client.uptime || 0), inline: true },
           { name: "Servers", value: `${guildCount}`, inline: true },
           { name: "Ping", value: pingStr, inline: true },
+
           { name: "Library", value: `discord.js`, inline: true }
         );
 
@@ -51,7 +54,7 @@ module.exports = {
 
       if (botUser?.avatarURL()) embed.setThumbnail(botUser.avatarURL());
 
-      // Default: public info is fine. If you want ephemeral, swap to replyEphemeral.
+      // Public info is fine. If you want it hidden, swap to replyEphemeral.
       return interaction.reply({ embeds: [embed] });
     } catch (err) {
       console.error("❌ Error running /info:", err);

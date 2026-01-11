@@ -1,7 +1,8 @@
 {
   "name": "discord-mod-bot",
   "version": "0.1.0",
-  "description": "A modular Discord moderation bot",
+  "author": "Death Killer21",
+  "description": "Moderation+ - A moderation suite built for discord moderators.",
   "main": "src/index.js",
   "type": "commonjs",
   "scripts": {
