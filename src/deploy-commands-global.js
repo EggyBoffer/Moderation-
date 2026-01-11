@@ -15,8 +15,15 @@ const commands = [];
 const commandsPath = path.join(__dirname, "commands");
 const commandFiles = fs.readdirSync(commandsPath).filter((f) => f.endsWith(".js"));
 
+// Track names -> [{ file, index }]
+const seen = new Map();
+
 for (const file of commandFiles) {
   const filePath = path.join(commandsPath, file);
+
+  // Clear require cache so reruns don't keep stale exports
+  delete require.cache[require.resolve(filePath)];
+
   const command = require(filePath);
 
   if (!command?.data?.toJSON) {
@@ -24,7 +31,30 @@ for (const file of commandFiles) {
     continue;
   }
 
-  commands.push(command.data.toJSON());
+  const json = command.data.toJSON();
+  const name = json?.name;
+
+  if (!name) {
+    console.warn(`⚠️ Skipping ${file}: command has no name`);
+    continue;
+  }
+
+  const idx = commands.length;
+  commands.push(json);
+
+  if (!seen.has(name)) seen.set(name, []);
+  seen.get(name).push({ file, index: idx });
+}
+
+// Detect duplicates BEFORE calling Discord
+const duplicates = [...seen.entries()].filter(([, arr]) => arr.length > 1);
+if (duplicates.length) {
+  console.error("❌ Duplicate command names detected (global commands must be unique):");
+  for (const [name, arr] of duplicates) {
+    const where = arr.map((x) => `${x.file} (index ${x.index})`).join(", ");
+    console.error(`  - "${name}" -> ${where}`);
+  }
+  process.exit(1);
 }
 
 const rest = new REST({ version: "10" }).setToken(token);
