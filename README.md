@@ -2,7 +2,7 @@
 
 **One bot. All your moderation. No bloat.**
 
-Moderation+ is a powerful, modern Discord moderation bot designed to replace multiple third-party bots with a single, configurable system — without sacrificing control, reliability, or transparency.
+Moderation+ is a powerful, modern Discord moderation bot designed to replace multiple third-party bots with a single, configurable system - without sacrificing control, reliability, or transparency.
 
 Built with server owners and moderators in mind.
 
@@ -33,7 +33,7 @@ No unnecessary features. No hidden paywalls. No nonsense.
 
 ## 🛡️ Core Features
 
-Moderation+ is modular — enable only what your server needs.
+Moderation+ is modular - enable only what your server needs.
 
 ### 🗑️ Moderation
 - Message purging with powerful filters
