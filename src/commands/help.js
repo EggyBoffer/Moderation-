@@ -1,21 +1,19 @@
 const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
 const { replyEphemeral } = require("../handlers/interactionReply");
+const { getBotMeta } = require("../storage/botMeta");
 
 /**
  * /help
  * - Auto-generates help text from registered slash commands in client.commands
  * - Groups common commands into categories (fallback: "Other")
- * - Includes a docs link placeholder
+ * - Uses botMeta for branding + docs/repo link
  */
-
-// Change this later to your actual docs page in the repo
-const DOCS_URL = "https://github.com/EggyBoffer/Moderation-";
 
 const CATEGORIES = [
   {
     key: "Moderation",
     match: (name) =>
-      ["purge", "warn", "timeout", "untimeout", "check", "infractions"].includes(name),
+      ["purge", "warn", "timeout", "untimeout", "check", "infractions", "note", "escalation"].includes(name),
   },
   {
     key: "Configuration",
@@ -24,16 +22,20 @@ const CATEGORIES = [
         "welcome",
         "statcounts",
         "autoreact",
+        "autoresponder",
+        "autorole",
         "rolepanel",
         "starboard",
         "timechannels",
-        "moderationlogs",
-        "config",
+        "setlogchannel",
+        "viewconfig",
+        "modrole",
+        "embed",
       ].includes(name),
   },
   {
     key: "Utility",
-    match: (name) => ["help", "info", "botinfo", "ping"].includes(name),
+    match: (name) => ["help", "info", "uptime", "ping"].includes(name),
   },
 ];
 
@@ -45,14 +47,24 @@ function pickCategory(commandName) {
 }
 
 function cmdSummary(cmd) {
-  // cmd.data is usually SlashCommandBuilder; it has .name and .description
   const name = cmd?.data?.name || cmd?.name || "unknown";
   const desc = cmd?.data?.description || cmd?.description || "No description set.";
   return { name, desc };
 }
 
-function safeLines(lines, max = 6) {
-  return lines.slice(0, max).join("\n");
+function trimToEmbedField(lines, maxLen = 1024) {
+  const out = [];
+  let total = 0;
+
+  for (const line of lines) {
+    const add = line.length + 1;
+    if (total + add > maxLen - 20) break;
+    out.push(line);
+    total += add;
+  }
+
+  if (out.length < lines.length) out.push("• …and more");
+  return out.join("\n");
 }
 
 module.exports = {
@@ -62,9 +74,10 @@ module.exports = {
 
   async execute(interaction, client) {
     try {
-      // Show to the user without spamming the whole server by default.
-      // If you prefer public help, swap replyEphemeral -> interaction.reply
-      const isEphemeralDefault = true;
+      const meta = getBotMeta();
+
+      // Default: hide in ephemeral so it doesn't spam channels
+      const EPHEMERAL_DEFAULT = true;
 
       const commandsMap = client?.commands;
       const commands = commandsMap ? Array.from(commandsMap.values()) : [];
@@ -88,57 +101,47 @@ module.exports = {
       const orderedCats = categoryOrder.filter((c) => grouped.has(c));
 
       const embed = new EmbedBuilder()
-        .setTitle("🔧 Moderation+ — Help")
+        .setTitle(`🔧 ${meta.name} — Help`)
         .setDescription(
           [
+            meta.tagline ? `_${meta.tagline}_` : "",
+            "",
             "Use **slash commands** by typing `/` in chat.",
-            "Most admin/mod commands require permissions or configured mod roles.",
+            "Some commands require mod/admin roles (or Manage Server).",
             "",
             "**Quick examples**",
-            safeLines(
-              [
-                "• `/purge amount:50` (bulk delete)",
-                "• `/warn add user:@User reason:...`",
-                "• `/timeout user:@User duration:10m reason:...`",
-                "• `/welcome set channel:#welcome`",
-                "• `/rolepanel create ...`",
-                "• `/starboard create ...`",
-              ],
-              6
-            ),
-          ].join("\n")
+            [
+              "• `/purge amount:50`",
+              "• `/warn add user:@User reason:...`",
+              "• `/timeout user:@User duration:10m reason:...`",
+              "• `/welcome set channel:#welcome`",
+              "• `/rolepanel create ...`",
+              "• `/starboard create ...`",
+            ].join("\n"),
+          ]
+            .filter(Boolean)
+            .join("\n")
         )
         .setFooter({ text: "Docs link is a placeholder for now — we’ll write proper docs soon." });
 
-      // Add one field per category (Discord embed field value limit is 1024 chars)
+      // Add one field per category
       for (const cat of orderedCats) {
         const list = grouped.get(cat) || [];
         if (list.length === 0) continue;
 
         const lines = list.map((c) => `• \`/${c.name}\` — ${c.desc}`);
-        let value = lines.join("\n");
-        if (value.length > 1024) {
-          // Trim safely
-          const trimmed = [];
-          let total = 0;
-          for (const line of lines) {
-            if (total + line.length + 1 > 900) break;
-            trimmed.push(line);
-            total += line.length + 1;
-          }
-          trimmed.push("• …and more");
-          value = trimmed.join("\n");
-        }
-
-        embed.addFields({ name: cat, value });
+        embed.addFields({ name: cat, value: trimToEmbedField(lines) });
       }
 
-      embed.addFields({
-        name: "📚 Documentation",
-        value: `For now, see the repo here:\n${DOCS_URL}`,
-      });
+      // Docs / repo link from botMeta (single source of truth)
+      if (meta.repoUrl) {
+        embed.addFields({
+          name: "📚 Documentation",
+          value: `Repo / docs: ${meta.repoUrl}`,
+        });
+      }
 
-      if (isEphemeralDefault) {
+      if (EPHEMERAL_DEFAULT) {
         return replyEphemeral(interaction, { embeds: [embed] });
       }
       return interaction.reply({ embeds: [embed] });
