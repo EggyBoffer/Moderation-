@@ -5,8 +5,8 @@ const { getBotMeta } = require("../storage/botMeta");
 /**
  * /help
  * - Auto-generates help text from registered slash commands in client.commands
- * - Groups common commands into categories (fallback: "Other")
- * - Uses botMeta for branding + links
+ * - Groups commands into categories (fallback: "Other")
+ * - Uses botMeta for branding + links (with safe fallbacks)
  */
 
 const CATEGORIES = [
@@ -38,6 +38,11 @@ const CATEGORIES = [
     match: (name) => ["help", "info", "uptime", "ping"].includes(name),
   },
 ];
+
+const FALLBACK_INVITE_URL =
+  "https://discord.com/oauth2/authorize?client_id=1459939265935839388&permissions=8&integration_type=0&scope=applications.commands+bot";
+const FALLBACK_PRIVACY_URL = "https://eggyboffer.github.io/Moderation-/legal/privacy-policy";
+const FALLBACK_TERMS_URL = "https://eggyboffer.github.io/Moderation-/legal/terms-of-service";
 
 function pickCategory(commandName) {
   for (const c of CATEGORIES) {
@@ -81,9 +86,10 @@ module.exports = {
       const name = meta.name || "Moderation+";
       const tagline = meta.tagline || meta.description || "";
 
-      const inviteUrl = meta.inviteUrl;
-      const privacyUrl = meta.privacyUrl;
-      const termsUrl = meta.termsUrl;
+      // ✅ Safe fallbacks so we never show "undefined" even if meta is outdated
+      const inviteUrl = meta.inviteUrl || FALLBACK_INVITE_URL;
+      const privacyUrl = meta.privacyUrl || FALLBACK_PRIVACY_URL;
+      const termsUrl = meta.termsUrl || FALLBACK_TERMS_URL;
 
       const commandsMap = client?.commands;
       const commands = commandsMap ? Array.from(commandsMap.values()) : [];
