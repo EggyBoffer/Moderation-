@@ -23,6 +23,10 @@
   <img src="https://img.shields.io/badge/Actively%20Developed-Yes-brightgreen?style=flat-square" />
 </p>
 
+<a href="https://eggyboffer.github.io/Moderation-/badges/servers.json">
+  <img src="https://img.shields.io/endpoint?url=https://eggyboffer.github.io/Moderation-/badges/servers.json" alt="Servers" />
+</a>
+
 ---
 
 **One bot. All your moderation. No bloat.**
