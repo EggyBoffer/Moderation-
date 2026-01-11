@@ -47,21 +47,16 @@ const COMMON_TIMEZONES = [
 function normZone(z) {
   return String(z || "").trim();
 }
-
 function normLabel(l) {
   return String(l || "").trim();
 }
-
 function getEntries(cfg) {
   return Array.isArray(cfg.timeChannels) ? cfg.timeChannels : [];
 }
 
-function withTimeout(promise, ms, label = "update") {
-  let t;
-  const timeout = new Promise((_, reject) => {
-    t = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(t));
+async function pokeUpdater(guild) {
+  // Fire-and-forget: let discord.js queue operations.
+  updateTimeChannelsForGuild(guild, { force: true }).catch(() => null);
 }
 
 module.exports = {
@@ -145,12 +140,8 @@ module.exports = {
             .setRequired(false)
         )
     )
-    .addSubcommand((sc) =>
-      sc.setName("list").setDescription("List configured timezone channels")
-    )
-    .addSubcommand((sc) =>
-      sc.setName("refresh").setDescription("Force refresh time channels now")
-    )
+    .addSubcommand((sc) => sc.setName("list").setDescription("List configured timezone channels"))
+    .addSubcommand((sc) => sc.setName("refresh").setDescription("Force refresh time channels now"))
     .addSubcommand((sc) =>
       sc
         .setName("repair")
@@ -163,46 +154,20 @@ module.exports = {
         )
     )
     .addSubcommand((sc) =>
-      sc
-        .setName("disable")
-        .setDescription("Disable time channels (does not delete channels)")
+      sc.setName("disable").setDescription("Disable time channels (does not delete channels)")
     )
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
   async execute(interaction) {
     try {
-      if (!interaction.inGuild()) {
-        return replyEphemeral(interaction, "Use this in a server.");
-      }
+      if (!interaction.inGuild()) return replyEphemeral(interaction, "Use this in a server.");
 
       const member = interaction.member;
       if (!member.permissions?.has(PermissionFlagsBits.ManageGuild)) {
-        return replyEphemeral(
-          interaction,
-          "You need **Manage Server** to configure time channels."
-        );
+        return replyEphemeral(interaction, "You need **Manage Server** to configure time channels.");
       }
 
       const sub = interaction.options.getSubcommand(true);
-
-      const safeRefresh = async () => {
-        try {
-          await withTimeout(
-            updateTimeChannelsForGuild(interaction.guild, { force: true }),
-            20_000,
-            "time channel refresh"
-          );
-          return { ok: true, msg: "✅ Updated immediately." };
-        } catch (err) {
-          console.warn("⚠️ timechannels refresh issue:", err?.message || err);
-          return {
-            ok: false,
-            msg:
-              "⚠️ Saved the setting, but Discord is being slow right now.\n" +
-              "It’ll still update automatically on the next tick.",
-          };
-        }
-      };
 
       if (sub === "setup") {
         const category = interaction.options.getChannel("category", true);
@@ -214,33 +179,26 @@ module.exports = {
         });
 
         await deferEphemeral(interaction);
-        const res = await safeRefresh();
+        await pokeUpdater(interaction.guild);
 
         return interaction.editReply(
           `✅ Time channels configured under **${category.name}**.\n` +
             `Now add zones with \`/timechannels add\`.\n` +
-            res.msg
+            `If Discord is slow, channels may appear/update within a minute or two.`
         );
       }
 
       if (sub === "add") {
         const cfg = getGuildConfig(interaction.guildId);
         if (!cfg.timeCategoryId) {
-          return replyEphemeral(
-            interaction,
-            "Time channels aren’t set up yet. Use `/timechannels setup` first."
-          );
+          return replyEphemeral(interaction, "Use `/timechannels setup` first.");
         }
 
         const tzChoice = interaction.options.getString("timezone");
         const tzCustom = interaction.options.getString("custom_timezone");
         const tz = normZone(tzCustom || tzChoice);
-
         if (!tz) {
-          return replyEphemeral(
-            interaction,
-            "Pick a timezone or provide `custom_timezone` (e.g. `Europe/London`)."
-          );
+          return replyEphemeral(interaction, "Pick a timezone or provide `custom_timezone` (e.g. `Europe/London`).");
         }
 
         const label = normLabel(interaction.options.getString("label")) || `🕒 ${tz}`;
@@ -250,16 +208,15 @@ module.exports = {
         const existing = entries.find((e) => normZone(e.timeZone) === tz);
 
         if (existing) {
-          const next = entries.map((e) =>
-            normZone(e.timeZone) === tz ? { ...e, label } : e
-          );
+          const next = entries.map((e) => (normZone(e.timeZone) === tz ? { ...e, label } : e));
           setGuildConfig(interaction.guildId, { timeChannels: next });
 
           await deferEphemeral(interaction);
-          const res = await safeRefresh();
+          await pokeUpdater(interaction.guild);
 
           return interaction.editReply(
-            `✅ Updated **${tz}** label to: **${label}**\n${res.msg}`
+            `✅ Updated **${tz}** label to: **${label}**\n` +
+              `If Discord is slow, the channel name may update on the next tick.`
           );
         }
 
@@ -268,9 +225,12 @@ module.exports = {
         });
 
         await deferEphemeral(interaction);
-        const res = await safeRefresh();
+        await pokeUpdater(interaction.guild);
 
-        return interaction.editReply(`✅ Added timezone: **${tz}**\n${res.msg}`);
+        return interaction.editReply(
+          `✅ Added timezone: **${tz}**\n` +
+            `Channel creation can be queued by Discord — if it doesn’t appear instantly, it should show shortly.`
+        );
       }
 
       if (sub === "label") {
@@ -282,21 +242,16 @@ module.exports = {
 
         const existing = entries.find((e) => normZone(e.timeZone) === tz);
         if (!existing) {
-          return replyEphemeral(
-            interaction,
-            `No entry found for timezone: **${tz}**\nUse \`/timechannels add\` first.`
-          );
+          return replyEphemeral(interaction, `No entry found for **${tz}**. Use \`/timechannels add\` first.`);
         }
 
-        const next = entries.map((e) =>
-          normZone(e.timeZone) === tz ? { ...e, label } : e
-        );
+        const next = entries.map((e) => (normZone(e.timeZone) === tz ? { ...e, label } : e));
         setGuildConfig(interaction.guildId, { timeChannels: next });
 
         await deferEphemeral(interaction);
-        const res = await safeRefresh();
+        await pokeUpdater(interaction.guild);
 
-        return interaction.editReply(`✅ Renamed **${tz}** to: **${label}**\n${res.msg}`);
+        return interaction.editReply(`✅ Renamed **${tz}** to: **${label}**`);
       }
 
       if (sub === "remove") {
@@ -323,8 +278,9 @@ module.exports = {
         }
 
         await deferEphemeral(interaction);
-        const res = await safeRefresh();
-        return interaction.editReply(`✅ Removed timezone: **${tz}**\n${res.msg}`);
+        await pokeUpdater(interaction.guild);
+
+        return interaction.editReply(`✅ Removed timezone: **${tz}**`);
       }
 
       if (sub === "list") {
@@ -333,10 +289,7 @@ module.exports = {
         const entries = getEntries(cfg);
 
         if (!categoryId || entries.length === 0) {
-          return replyEphemeral(
-            interaction,
-            "No time channels configured yet. Use `/timechannels setup` and `/timechannels add`."
-          );
+          return replyEphemeral(interaction, "No time channels configured yet. Use `/timechannels setup` and `/timechannels add`.");
         }
 
         const lines = entries.map((e) => {
@@ -347,16 +300,13 @@ module.exports = {
           return `• **${tz}** — "${label}" — ${ch} — perms:${perms}`;
         });
 
-        return replyEphemeral(
-          interaction,
-          `**Time Channels**\n• Category: <#${categoryId}>\n` + lines.join("\n")
-        );
+        return replyEphemeral(interaction, `**Time Channels**\n• Category: <#${categoryId}>\n` + lines.join("\n"));
       }
 
       if (sub === "refresh") {
         await deferEphemeral(interaction);
-        const res = await safeRefresh();
-        return interaction.editReply(`✅ Refresh requested.\n${res.msg}`);
+        await pokeUpdater(interaction.guild);
+        return interaction.editReply("✅ Refresh requested. If Discord is slow, updates may land shortly.");
       }
 
       if (sub === "repair") {
@@ -364,26 +314,18 @@ module.exports = {
 
         await deferEphemeral(interaction);
 
-        const { fixed, deleted } = await repairTimeChannelsForGuild(interaction.guild, {
-          deleteDuplicates,
-        });
-
-        const res = await safeRefresh();
+        const { fixed, deleted } = await repairTimeChannelsForGuild(interaction.guild, { deleteDuplicates });
+        await pokeUpdater(interaction.guild);
 
         return interaction.editReply(
-          `🧰 Repair complete.\n` +
-            `• Relinked entries: **${fixed}**\n` +
-            `• Deleted duplicates: **${deleted}**\n` +
-            `${res.msg}`
+          `🧰 Repair complete.\n• Relinked entries: **${fixed}**\n• Deleted duplicates: **${deleted}**\n` +
+            `If Discord is slow, channel updates may land shortly.`
         );
       }
 
       if (sub === "disable") {
         setGuildConfig(interaction.guildId, { timeCategoryId: null });
-        return replyEphemeral(
-          interaction,
-          "✅ Time channels disabled. (Existing channels were not deleted.)"
-        );
+        return replyEphemeral(interaction, "✅ Time channels disabled. (Existing channels were not deleted.)");
       }
     } catch (err) {
       console.error("❌ timechannels command error:", err);

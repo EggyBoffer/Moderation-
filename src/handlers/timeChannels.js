@@ -1,32 +1,19 @@
 const { ChannelType, PermissionFlagsBits } = require("discord.js");
 const { getGuildConfig, setGuildConfig } = require("../storage/guildConfig");
 
+// Tick every 5 minutes (stable)
+const TICK_MS = 300_000;
 
-const lastRun = new Map();
-const MIN_INTERVAL_MS = 5_000;
-
-
-const API_TIMEOUT_MS = 15_000;
-const SETNAME_TIMEOUT_MS = 30_000;
-
-
-const TICK_MS = 300_000; 
-const STAGGER_SPREAD_MS = 90_000; 
-
-
+// Prevent concurrent updates per guild (ticker + command collisions)
 const guildLocks = new Map();
 
+// Per-channel rename cooldown (avoid hammering if Discord queues)
+const lastNameAttempt = new Map(); // channelId -> timestamp
+const NAME_ATTEMPT_COOLDOWN_MS = 300_000; // 5 minutes
 
-const lastNameAttempt = new Map(); 
-const NAME_ATTEMPT_COOLDOWN_MS = 120_000; 
-
-function withTimeout(promise, ms, label = "operation") {
-  let t;
-  const timeout = new Promise((_, reject) => {
-    t = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(t));
-}
+// Throttle updates per guild
+const lastRun = new Map();
+const MIN_INTERVAL_MS = 60_000; // 1 minute minimum between update passes unless forced
 
 function safeLabel(s, fallback) {
   const v = String(s || "").trim();
@@ -42,14 +29,12 @@ function normalizeLabelForMatch(label) {
 
 function formatTimeForZone(timeZone, locale = "en-GB") {
   try {
-    // "18:05"
-    const fmt = new Intl.DateTimeFormat(locale, {
+    return new Intl.DateTimeFormat(locale, {
       timeZone,
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
-    });
-    return fmt.format(new Date());
+    }).format(new Date());
   } catch {
     return null;
   }
@@ -62,17 +47,17 @@ function buildChannelName(label, timeStr) {
   const endsWithColon = l.endsWith(":");
   const endsWithDash = l.endsWith("—") || l.endsWith("-");
 
-  let name = "";
-  if (endsWithColon || endsWithDash) name = `${l} ${t}`;
-  else name = `${l} — ${t}`;
-
-
+  const name = endsWithColon || endsWithDash ? `${l} ${t}` : `${l} — ${t}`;
   return name.length > 96 ? name.slice(0, 96) : name;
 }
 
-
+/**
+ * Deduplicate entries so you can’t have multiple entries for the same timezone.
+ * Prefer the one that has channelId. Preserve permsApplied flag.
+ */
 function dedupeEntries(entries) {
   const map = new Map(); // tz -> entry
+
   for (const e of entries) {
     const tz = String(e?.timeZone || "").trim();
     if (!tz) continue;
@@ -92,7 +77,7 @@ function dedupeEntries(entries) {
       continue;
     }
 
-  
+    // Prefer keeping a linked channelId
     if (!existing.channelId && channelId) {
       map.set(tz, {
         timeZone: tz,
@@ -103,39 +88,23 @@ function dedupeEntries(entries) {
       continue;
     }
 
-
+    // Otherwise keep existing but fill label if missing
     if (!existing.label && label) {
       map.set(tz, { ...existing, label });
     }
 
-
+    // Preserve permsApplied if any had it
     if (permsApplied && !existing.permsApplied) {
       map.set(tz, { ...map.get(tz), permsApplied: true });
     }
   }
+
   return [...map.values()];
 }
 
-
-function hashStringToInt(s) {
-  const str = String(s || "");
-  let h = 0;
-  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
-  return h;
-}
-
-
-function shouldUpdateThisTick(guildId, timeZone) {
-  const now = Date.now();
-  const bucket = now % TICK_MS;
-  const offset = hashStringToInt(`${guildId}:${timeZone}`) % STAGGER_SPREAD_MS;
-
-  // Allow a window of 15s where this TZ is "eligible"
-  const WINDOW_MS = 15_000;
-  return Math.abs(bucket - offset) <= WINDOW_MS || bucket < WINDOW_MS || bucket > (TICK_MS - WINDOW_MS);
-}
-
-
+/**
+ * Scan the category for voice channels that match a label (prefix match).
+ */
 async function findMatchingChannels(guild, categoryId, label) {
   const normLabel = normalizeLabelForMatch(label);
   if (!normLabel) return [];
@@ -155,28 +124,31 @@ async function findMatchingChannels(guild, categoryId, label) {
   return matches;
 }
 
-
+/**
+ * IMPORTANT:
+ * - NO artificial timeouts here.
+ * - discord.js queues & respects rate limits.
+ * - Timeouts cause "give up then retry" loops.
+ *
+ * Returns { channel, permsApplied }.
+ */
 async function ensureVoiceTimeChannel(guild, categoryId, entry, name) {
   let ch = null;
 
   if (entry?.channelId) {
     ch =
       guild.channels.cache.get(entry.channelId) ||
-      (await withTimeout(
-        guild.channels.fetch(entry.channelId).catch(() => null),
-        API_TIMEOUT_MS,
-        "channels.fetch"
-      ));
+      (await guild.channels.fetch(entry.channelId).catch(() => null));
 
     if (ch && ch.type !== ChannelType.GuildVoice) ch = null;
   }
 
   const everyoneRoleId = guild.roles.everyone.id;
 
-
+  // Create if missing
   if (!ch) {
-    ch = await withTimeout(
-      guild.channels.create({
+    ch = await guild.channels
+      .create({
         name,
         type: ChannelType.GuildVoice,
         parent: categoryId || null,
@@ -186,46 +158,47 @@ async function ensureVoiceTimeChannel(guild, categoryId, entry, name) {
             deny: [PermissionFlagsBits.Connect, PermissionFlagsBits.Speak],
           },
         ],
-      }),
-      API_TIMEOUT_MS,
-      "channels.create"
-    );
+      })
+      .catch(() => null);
+
+    if (!ch) throw new Error("channels.create failed (possibly rate limited/permissions)");
+
     return { channel: ch, permsApplied: true };
   }
 
-
+  // Fix parent only if wrong
   if (categoryId && ch.parentId !== categoryId) {
-    await withTimeout(ch.setParent(categoryId).catch(() => null), API_TIMEOUT_MS, "setParent");
+    await ch.setParent(categoryId).catch(() => null);
   }
 
-
+  // Permissions: apply ONCE only (major rate-limit saver)
   let permsApplied = Boolean(entry?.permsApplied);
   if (!permsApplied) {
-    await withTimeout(
-      ch.permissionOverwrites
-        .edit(everyoneRoleId, { Connect: false, Speak: false })
-        .catch(() => null),
-      API_TIMEOUT_MS,
-      "permissionOverwrites.edit"
-    );
+    await ch.permissionOverwrites
+      .edit(everyoneRoleId, { Connect: false, Speak: false })
+      .catch(() => null);
     permsApplied = true;
   }
 
- 
+  // Rename with cooldown
   if (ch.name !== name) {
     const last = lastNameAttempt.get(ch.id) || 0;
     const now = Date.now();
-
     if (now - last >= NAME_ATTEMPT_COOLDOWN_MS) {
       lastNameAttempt.set(ch.id, now);
-      await withTimeout(ch.setName(name).catch(() => null), SETNAME_TIMEOUT_MS, "setName");
+      await ch.setName(name).catch(() => null);
     }
   }
 
   return { channel: ch, permsApplied };
 }
 
-
+/**
+ * Repair/reconcile:
+ * - Dedup entries by timezone
+ * - Relink missing channelId by label
+ * - Optionally delete duplicates
+ */
 async function repairTimeChannelsForGuild(guild, { deleteDuplicates = false } = {}) {
   const cfg = getGuildConfig(guild.id);
   const categoryId = cfg.timeCategoryId;
@@ -285,7 +258,6 @@ async function repairTimeChannelsForGuild(guild, { deleteDuplicates = false } = 
   return { fixed, deleted };
 }
 
-
 async function updateTimeChannelsForGuild(guild, { force = false } = {}) {
   if (guildLocks.has(guild.id)) return guildLocks.get(guild.id);
 
@@ -302,11 +274,7 @@ async function updateTimeChannelsForGuild(guild, { force = false } = {}) {
 
     const category =
       guild.channels.cache.get(categoryId) ||
-      (await withTimeout(
-        guild.channels.fetch(categoryId).catch(() => null),
-        API_TIMEOUT_MS,
-        "fetch category"
-      ));
+      (await guild.channels.fetch(categoryId).catch(() => null));
 
     if (!category || category.type !== ChannelType.GuildCategory) return;
 
@@ -322,21 +290,15 @@ async function updateTimeChannelsForGuild(guild, { force = false } = {}) {
       const timeZone = String(e?.timeZone || "").trim();
       if (!timeZone) continue;
 
-     
-      if (!force && !shouldUpdateThisTick(guild.id, timeZone)) {
-        updated.push(e);
-        continue;
-      }
-
       const timeStr = formatTimeForZone(timeZone, locale);
       if (!timeStr) {
-        console.warn(`⚠️ Invalid timeZone "${timeZone}" in guild ${guild.id}`);
         updated.push(e);
         continue;
       }
 
       const label = safeLabel(e?.label, timeZone);
 
+      // Relink if missing
       let channelId = e.channelId || null;
       if (!channelId) {
         const matches = await findMatchingChannels(guild, categoryId, label);
@@ -364,14 +326,7 @@ async function updateTimeChannelsForGuild(guild, { force = false } = {}) {
           `⚠️ TimeChannels update issue for "${label}" in guild ${guild.id}:`,
           err?.message || err
         );
-
-
-        const matches = await findMatchingChannels(guild, categoryId, label);
-        if (matches.length > 0) {
-          updated.push({ timeZone, label, channelId: matches[0].id, permsApplied: Boolean(e?.permsApplied) });
-        } else {
-          updated.push({ timeZone, label, ...(e?.permsApplied ? { permsApplied: true } : {}) });
-        }
+        updated.push(e);
       }
     }
 
@@ -381,7 +336,6 @@ async function updateTimeChannelsForGuild(guild, { force = false } = {}) {
   guildLocks.set(guild.id, p);
   return p;
 }
-
 
 function startTimeChannelsTicker(client) {
   if (client._timeChannelsTickerStarted) return;
