@@ -2,8 +2,5 @@
   "schemaVersion": 1,
   "label": "Servers",
   "message": "2",
-  "color": "5865F2",
-  "logo": "discord",
-  "logoColor": "white",
-  "style": "flat-square"
+  "color": "5865F2"
 }

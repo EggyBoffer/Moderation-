@@ -11,20 +11,16 @@ function requireEnv(name) {
 
 async function getGuildCount(token) {
   const client = new Client({
-    intents: [GatewayIntentBits.Guilds], // minimal intent needed for guild cache size
+    intents: [GatewayIntentBits.Guilds], // minimal intent
   });
 
   await client.login(token);
 
-  // Wait until caches are ready
   await new Promise((resolve) => client.once("ready", resolve));
 
   const count = client.guilds.cache.size;
 
-  // Clean shutdown
   await client.destroy();
-
-  if (!Number.isFinite(count)) throw new Error("Guild count was not a number.");
   return count;
 }
 
@@ -37,17 +33,16 @@ async function main() {
 
   fs.mkdirSync(outDir, { recursive: true });
 
-  // Shields endpoint schema:
-  // https://shields.io/endpoint
+  // IMPORTANT: Shields endpoint JSON does NOT allow logo/logoColor/style here.
+  // Keep JSON minimal and put logo/style on the badge URL instead.
   const payload = {
     schemaVersion: 1,
     label: "Servers",
     message: String(guildCount),
-    color: "5865F2"
+    color: "5865F2",
   };
 
   fs.writeFileSync(outFile, JSON.stringify(payload, null, 2) + "\n", "utf8");
-
   console.log(`✅ Updated badges/servers.json -> ${guildCount} servers`);
 }
 
