@@ -4,6 +4,7 @@ const {
   startTimeChannelsTicker,
   updateTimeChannelsForGuild,
 } = require("../handlers/timeChannels");
+const { startPresenceTicker } = require("../handlers/presence");
 
 module.exports = {
   name: Events.ClientReady,
@@ -43,8 +44,11 @@ module.exports = {
       updateTimeChannelsForGuild(guild).catch(() => null);
     }
 
-    // Start global ticker (updates all configured guilds every minute)
+    // Start global ticker (updates all configured guilds)
     startTimeChannelsTicker(client);
+
+    // Start presence updater (bot status)
+    startPresenceTicker(client);
 
     console.log("✅ Invite cache warmed.");
   },
