@@ -43,10 +43,7 @@ async function main() {
     schemaVersion: 1,
     label: "Servers",
     message: String(guildCount),
-    color: "5865F2",
-    logo: "discord",
-    logoColor: "white",
-    style: "flat-square",
+    color: "5865F2"
   };
 
   fs.writeFileSync(outFile, JSON.stringify(payload, null, 2) + "\n", "utf8");

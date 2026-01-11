@@ -23,9 +23,11 @@
   <img src="https://img.shields.io/badge/Actively%20Developed-Yes-brightgreen?style=flat-square" />
 </p>
 
+<p align="center">
 <a href="https://eggyboffer.github.io/Moderation-/badges/servers.json">
-  <img src="https://img.shields.io/endpoint?url=https://eggyboffer.github.io/Moderation-/badges/servers.json" alt="Servers" />
+  <img src="https://img.shields.io/endpoint?url=https://eggyboffer.github.io/Moderation-/badges/servers.json&logo=discord&logoColor=white" alt="Servers" />
 </a>
+</p>
 
 ---
 
