@@ -1,5 +1,9 @@
 const { ActivityType } = require("discord.js");
 
+const ROTATE_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes (safe)
+
+/* ---------- helpers ---------- */
+
 function parseActivityType(type) {
   const t = String(type || "").trim().toLowerCase();
   if (t === "playing") return ActivityType.Playing;
@@ -9,39 +13,56 @@ function parseActivityType(type) {
   return ActivityType.Watching;
 }
 
-function buildPresenceText(client) {
-  // Supports {servers} token in env text
+function getPresenceMessages(client) {
   const guildCount = client.guilds?.cache?.size ?? 0;
 
-  const raw = process.env.PRESENCE_TEXT || "/help";
-  return String(raw).replaceAll("{servers}", String(guildCount));
+  // Rotation list
+  const rawRotate = process.env.PRESENCE_ROTATE;
+  if (rawRotate) {
+    return rawRotate
+      .split(";")
+      .map((s) =>
+        s
+          .trim()
+          .replaceAll("{servers}", String(guildCount))
+      )
+      .filter(Boolean);
+  }
+
+  // Fallback to single text
+  const single = process.env.PRESENCE_TEXT || "/help";
+  return [single.replaceAll("{servers}", String(guildCount))];
 }
 
-/**
- * Sets bot presence once, then refreshes occasionally.
- * Safe: low-frequency updates to avoid rate limits.
- */
+/* ---------- main ---------- */
+
 function startPresenceTicker(client) {
   if (client._presenceTickerStarted) return;
   client._presenceTickerStarted = true;
 
   const activityType = parseActivityType(process.env.PRESENCE_TYPE);
-  const status = (process.env.PRESENCE_STATUS || "online").toLowerCase(); // online, idle, dnd, invisible
+  const status = (process.env.PRESENCE_STATUS || "online").toLowerCase();
+
+  let index = 0;
 
   const applyPresence = () => {
-    const text = buildPresenceText(client);
+    const messages = getPresenceMessages(client);
+    if (!messages.length) return;
+
+    const name = messages[index % messages.length];
+    index++;
 
     client.user?.setPresence({
       status,
-      activities: [{ name: text, type: activityType }],
+      activities: [{ name, type: activityType }],
     });
   };
 
   // Set immediately
   applyPresence();
 
-  // Refresh every 10 minutes (safe) in case {servers} changes
-  setInterval(() => applyPresence(), 600_000);
+  // Rotate safely
+  setInterval(applyPresence, ROTATE_INTERVAL_MS);
 }
 
 module.exports = { startPresenceTicker };
