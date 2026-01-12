@@ -6,7 +6,7 @@ const SUPPORT_GUILD_ID = process.env.SUPPORT_GUILD_ID || "1460356958514315275";
 const UPDATES_CHANNEL_ID =
   process.env.SUPPORT_UPDATES_CHANNEL_ID || "1460371583507107919";
 
-// How often to check GitHub (6 hours by default)
+// Optional: how often to check GitHub releases (kept, but not required for deploy posts)
 const CHECK_INTERVAL_MS =
   Number(process.env.RELEASE_CHECK_INTERVAL_MS) || 6 * 60 * 60 * 1000;
 
@@ -15,74 +15,8 @@ const GITHUB_REPO_NAME = "Moderation-";
 const GITHUB_LATEST_RELEASE_URL = `https://api.github.com/repos/${GITHUB_REPO_OWNER}/${GITHUB_REPO_NAME}/releases/latest`;
 
 function normalizeVersion(tag) {
-  // Common tags: "v1.2.3" or "1.2.3"
   const s = String(tag || "").trim();
   return s.startsWith("v") ? s.slice(1) : s;
-}
-
-async function fetchLatestRelease() {
-  const res = await fetch(GITHUB_LATEST_RELEASE_URL, {
-    headers: {
-      "User-Agent": "ModerationPlus-ReleaseNotifier",
-      Accept: "application/vnd.github+json",
-    },
-  });
-
-  // Handle rate limit / API issues gracefully
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`GitHub API error ${res.status}: ${text.slice(0, 200)}`);
-  }
-
-  const data = await res.json();
-
-  return {
-    tag: data.tag_name || "",
-    name: data.name || data.tag_name || "New Release",
-    url: data.html_url || "",
-    publishedAt: data.published_at || "",
-    body: data.body || "",
-    prerelease: !!data.prerelease,
-    draft: !!data.draft,
-  };
-}
-
-function buildReleaseEmbed(meta, latest, currentVersion) {
-  const latestVersion = normalizeVersion(latest.tag);
-
-  const lines = [];
-
-  lines.push(`**New version detected:** \`${latestVersion}\``);
-  lines.push(`**Current bot version:** \`${currentVersion}\``);
-
-  if (latest.prerelease) lines.push("⚠️ This release is marked as **pre-release**.");
-  if (latest.draft) lines.push("⚠️ This release is marked as a **draft**.");
-
-  // Keep body short to avoid massive embeds
-  const body = String(latest.body || "").trim();
-  if (body) {
-    const trimmed = body.length > 600 ? body.slice(0, 600) + "…" : body;
-    lines.push("");
-    lines.push("**Release notes (trimmed):**");
-    lines.push(trimmed);
-  }
-
-  const embed = new EmbedBuilder()
-    .setTitle(`🚀 ${meta.name || "Moderation+"} — Update Available`)
-    .setColor(0x2ecc71)
-    .setDescription(lines.join("\n"))
-    .addFields(
-      latest.url ? { name: "Release", value: latest.url } : null,
-      latest.publishedAt
-        ? { name: "Published", value: `<t:${Math.floor(new Date(latest.publishedAt).getTime() / 1000)}:F>` }
-        : null
-    )
-    .setFooter({ text: "Internal update notifier (support server only)." });
-
-  // Filter out null fields
-  embed.data.fields = (embed.data.fields || []).filter(Boolean);
-
-  return embed;
 }
 
 async function postToSupportChannel(client, embed) {
@@ -96,32 +30,114 @@ async function postToSupportChannel(client, embed) {
   return true;
 }
 
-async function checkOnce(client) {
+/**
+ * ✅ DEPLOY NOTIFIER (what you actually wanted)
+ * Posts when the running bot version changes (after a deploy/rebuild).
+ */
+async function checkAndPostDeployVersion(client) {
   const meta = getBotMeta();
   const state = getInternalState();
 
   const currentVersion = String(meta.version || "0.0.0");
-  const latest = await fetchLatestRelease();
-  const latestVersion = normalizeVersion(latest.tag);
+  const lastPosted = state.lastPostedRunningVersion;
 
-  // If GitHub didn't return a tag, do nothing
-  if (!latestVersion) return;
+  // Only post if this is a new running version we haven't announced
+  if (lastPosted === currentVersion) return;
 
-  // Prevent reposting the same version
-  const lastNotified = state.lastNotifiedReleaseVersion;
-  if (lastNotified === latestVersion) return;
-
-  // Optional: only notify when the latest > current (semver compare is more work; keep it simple)
-  // If you want strict semver comparisons later, we can add it.
-  if (latestVersion === currentVersion) {
-    // Still mark as notified so it doesn't repeatedly post “same version”
-    patchInternalState({ lastNotifiedReleaseVersion: latestVersion });
-    return;
-  }
-
-  const embed = buildReleaseEmbed(meta, latest, currentVersion);
+  const embed = new EmbedBuilder()
+    .setTitle(`✅ ${meta.name || "Moderation+"} — Deployed`)
+    .setColor(0x2ecc71)
+    .setDescription(
+      [
+        `A new version is now running in production.`,
+        "",
+        `**Version:** \`${currentVersion}\``,
+        meta.repoUrl ? `**Repo:** ${meta.repoUrl}` : null,
+      ].filter(Boolean).join("\n")
+    )
+    .setFooter({ text: "Internal deploy notifier (support server only)." })
+    .setTimestamp(new Date());
 
   const posted = await postToSupportChannel(client, embed);
+  if (posted) {
+    patchInternalState({
+      lastPostedRunningVersion: currentVersion,
+      lastPostedRunningAt: new Date().toISOString(),
+    });
+  }
+}
+
+/**
+ * Optional: GitHub latest release watcher (only useful if you actually create GitHub Releases)
+ */
+async function fetchLatestRelease() {
+  const res = await fetch(GITHUB_LATEST_RELEASE_URL, {
+    headers: {
+      "User-Agent": "ModerationPlus-ReleaseNotifier",
+      Accept: "application/vnd.github+json",
+    },
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`GitHub API error ${res.status}: ${text.slice(0, 200)}`);
+  }
+
+  const data = await res.json();
+  return {
+    tag: data.tag_name || "",
+    url: data.html_url || "",
+    publishedAt: data.published_at || "",
+    body: data.body || "",
+    prerelease: !!data.prerelease,
+    draft: !!data.draft,
+  };
+}
+
+function buildReleaseEmbed(meta, latest) {
+  const latestVersion = normalizeVersion(latest.tag);
+
+  const body = String(latest.body || "").trim();
+  const trimmed = body ? (body.length > 600 ? body.slice(0, 600) + "…" : body) : "";
+
+  const lines = [
+    `**New GitHub Release:** \`${latestVersion}\``,
+    latest.prerelease ? "⚠️ Marked as **pre-release**." : null,
+    latest.draft ? "⚠️ Marked as a **draft**." : null,
+    trimmed ? "" : null,
+    trimmed ? "**Release notes (trimmed):**" : null,
+    trimmed || null,
+  ].filter(Boolean);
+
+  const embed = new EmbedBuilder()
+    .setTitle(`🚀 ${meta.name || "Moderation+"} — GitHub Release`)
+    .setColor(0x5865f2)
+    .setDescription(lines.join("\n"))
+    .addFields(latest.url ? { name: "Release", value: latest.url } : null)
+    .setFooter({ text: "Internal release notifier (support server only)." });
+
+  embed.data.fields = (embed.data.fields || []).filter(Boolean);
+
+  if (latest.publishedAt) {
+    embed.setTimestamp(new Date(latest.publishedAt));
+  }
+
+  return embed;
+}
+
+async function checkGitHubReleaseOnce(client) {
+  const meta = getBotMeta();
+  const state = getInternalState();
+
+  const latest = await fetchLatestRelease();
+  const latestVersion = normalizeVersion(latest.tag);
+  if (!latestVersion) return;
+
+  if (state.lastNotifiedReleaseVersion === latestVersion) return;
+
+  const embed = buildReleaseEmbed(meta, latest);
+  const posted = await postToSupportChannel(client, embed);
+
   if (posted) {
     patchInternalState({
       lastNotifiedReleaseVersion: latestVersion,
@@ -131,23 +147,21 @@ async function checkOnce(client) {
 }
 
 function startGitHubReleaseNotifier(client) {
-  // Only run if the bot is actually in the support guild
-  const inSupportGuild = client.guilds.cache.has(SUPPORT_GUILD_ID);
-  if (!inSupportGuild) return;
+  // Only run if this bot is actually in the support guild
+  if (!client.guilds.cache.has(SUPPORT_GUILD_ID)) return;
 
-  // Run immediately once
-  checkOnce(client).catch((err) =>
-    console.warn("⚠️ Release notifier check failed:", err?.message || err)
+  // ✅ Always check deploy version on startup (this is the key)
+  checkAndPostDeployVersion(client).catch((err) =>
+    console.warn("⚠️ Deploy notifier failed:", err?.message || err)
   );
 
-  // Then poll
+  // Optional: keep GitHub release polling (only matters if you use Releases)
   const timer = setInterval(() => {
-    checkOnce(client).catch((err) =>
-      console.warn("⚠️ Release notifier check failed:", err?.message || err)
+    checkGitHubReleaseOnce(client).catch((err) =>
+      console.warn("⚠️ GitHub release check failed:", err?.message || err)
     );
   }, CHECK_INTERVAL_MS);
 
-  // Don’t keep the process alive just for this timer
   if (typeof timer.unref === "function") timer.unref();
 }
 
