@@ -10,9 +10,10 @@ const DEFAULT_PRIVACY_URL =
 const DEFAULT_TERMS_URL =
   "https://eggyboffer.github.io/Moderation-/legal/terms-of-service";
 
-// Support (until you create a support server)
+// Support (until everything is centralized)
 const SUPPORT_EMAIL = "dk21eve@gmail.com";
 const SUPPORT_DISCORD = "death_killer21";
+const SUPPORT_SERVER_URL = "https://discord.gg/DaPDjKfaxY";
 
 function readPackageJson() {
   try {
@@ -29,22 +30,25 @@ function getBotMeta() {
   const pkg = readPackageJson();
 
   return {
+    // Branding
     name: "Moderation+",
     tagline: "Moderation, utilities, and automation — without the bot bloat.",
-    author: "Moderation+ Team",
-    maintainer: "Death Killer21",
-
-    // ✅ Automatic version (bumped by `npm version patch|minor|major`)
-    version:
-      pkg?.version && typeof pkg.version === "string" ? pkg.version : "0.0.0",
-
-    // Optional extra metadata
     description:
       pkg?.description && typeof pkg.description === "string"
         ? pkg.description
         : null,
 
-    // Links used in /info, /help, README, etc.
+    // Ownership
+    author: "Moderation+ Team",
+    maintainer: "Death Killer21",
+
+    // Versioning (auto-managed via npm version)
+    version:
+      pkg?.version && typeof pkg.version === "string"
+        ? pkg.version
+        : "0.0.0",
+
+    // Links (used by /info, /help, README, etc.)
     repoUrl: DEFAULT_REPO_URL,
     inviteUrl: DEFAULT_INVITE_URL,
     privacyUrl: DEFAULT_PRIVACY_URL,
@@ -53,6 +57,7 @@ function getBotMeta() {
     // Support
     supportEmail: SUPPORT_EMAIL,
     supportDiscord: SUPPORT_DISCORD,
+    supportServerUrl: SUPPORT_SERVER_URL,
   };
 }
 

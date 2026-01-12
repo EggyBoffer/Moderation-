@@ -32,14 +32,12 @@ module.exports = {
       const ping = client.ws?.ping;
       const pingStr = Number.isFinite(ping) ? `${Math.round(ping)}ms` : "Unknown";
 
-      // Prefer meta fields if present, fallback to sensible defaults
       const name = meta.name || "Moderation+";
       const description =
         meta.tagline ||
         meta.description ||
         "A multi-server moderation bot with built-in utilities.";
 
-      // Links (single-source-of-truth friendly)
       const inviteUrl =
         meta.inviteUrl ||
         "https://discord.com/oauth2/authorize?client_id=1459939265935839388&permissions=8&integration_type=0&scope=applications.commands+bot";
@@ -51,6 +49,13 @@ module.exports = {
 
       const supportEmail = meta.supportEmail || "dk21eve@gmail.com";
       const supportDiscord = meta.supportDiscord || "death_killer21";
+      const supportServerUrl = meta.supportServerUrl || null;
+
+      const supportLines = [
+        supportServerUrl ? `Support Server: ${supportServerUrl}` : null,
+        `Email: **${supportEmail}**`,
+        `Discord: **\`${supportDiscord}\`**`,
+      ].filter(Boolean);
 
       const embed = new EmbedBuilder()
         .setTitle(`ℹ️ ${name}`)
@@ -72,7 +77,7 @@ module.exports = {
           },
           {
             name: "🛟 Support",
-            value: `Email: **${supportEmail}**\nDiscord: **\`${supportDiscord}\`**`,
+            value: supportLines.join("\n"),
           }
         );
 
