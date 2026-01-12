@@ -6,6 +6,9 @@ const {
 } = require("../handlers/timeChannels");
 const { startPresenceTicker } = require("../handlers/presence");
 
+// 🔔 Internal-only GitHub release notifier (support server only)
+const { startGitHubReleaseNotifier } = require("../internal/githubReleaseNotifier");
+
 module.exports = {
   name: Events.ClientReady,
   once: true,
@@ -49,6 +52,13 @@ module.exports = {
 
     // Start presence updater (bot status)
     startPresenceTicker(client);
+
+    // 🔔 Start internal release notifier (only runs if this bot is in the support guild)
+    try {
+      startGitHubReleaseNotifier(client);
+    } catch (err) {
+      console.warn("⚠️ Failed to start GitHub release notifier:", err?.message || err);
+    }
 
     console.log("✅ Invite cache warmed.");
   },
