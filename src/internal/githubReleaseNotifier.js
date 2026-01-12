@@ -6,7 +6,7 @@ const SUPPORT_GUILD_ID = process.env.SUPPORT_GUILD_ID || "1460356958514315275";
 const UPDATES_CHANNEL_ID =
   process.env.SUPPORT_UPDATES_CHANNEL_ID || "1460371583507107919";
 
-// Optional: how often to check GitHub releases (kept, but not required for deploy posts)
+  
 const CHECK_INTERVAL_MS =
   Number(process.env.RELEASE_CHECK_INTERVAL_MS) || 6 * 60 * 60 * 1000;
 
@@ -30,10 +30,7 @@ async function postToSupportChannel(client, embed) {
   return true;
 }
 
-/**
- * ✅ DEPLOY NOTIFIER (what you actually wanted)
- * Posts when the running bot version changes (after a deploy/rebuild).
- */
+
 async function checkAndPostDeployVersion(client) {
   const meta = getBotMeta();
   const state = getInternalState();
@@ -41,21 +38,21 @@ async function checkAndPostDeployVersion(client) {
   const currentVersion = String(meta.version || "0.0.0");
   const lastPosted = state.lastPostedRunningVersion;
 
-  // Only post if this is a new running version we haven't announced
+
   if (lastPosted === currentVersion) return;
 
   const embed = new EmbedBuilder()
-    .setTitle(`✅ ${meta.name || "Moderation+"} — Deployed`)
+    .setTitle(`✅ ${meta.name || "Moderation+"} — Updated`)
     .setColor(0x2ecc71)
     .setDescription(
       [
-        `A new version is now running in production.`,
+        `A new version is now live!.`,
         "",
         `**Version:** \`${currentVersion}\``,
         meta.repoUrl ? `**Repo:** ${meta.repoUrl}` : null,
       ].filter(Boolean).join("\n")
     )
-    .setFooter({ text: "Internal deploy notifier (support server only)." })
+    .setFooter({ text: "Deploy Notifier!" })
     .setTimestamp(new Date());
 
   const posted = await postToSupportChannel(client, embed);
@@ -67,9 +64,7 @@ async function checkAndPostDeployVersion(client) {
   }
 }
 
-/**
- * Optional: GitHub latest release watcher (only useful if you actually create GitHub Releases)
- */
+
 async function fetchLatestRelease() {
   const res = await fetch(GITHUB_LATEST_RELEASE_URL, {
     headers: {
@@ -147,15 +142,13 @@ async function checkGitHubReleaseOnce(client) {
 }
 
 function startGitHubReleaseNotifier(client) {
-  // Only run if this bot is actually in the support guild
   if (!client.guilds.cache.has(SUPPORT_GUILD_ID)) return;
 
-  // ✅ Always check deploy version on startup (this is the key)
+
   checkAndPostDeployVersion(client).catch((err) =>
     console.warn("⚠️ Deploy notifier failed:", err?.message || err)
   );
 
-  // Optional: keep GitHub release polling (only matters if you use Releases)
   const timer = setInterval(() => {
     checkGitHubReleaseOnce(client).catch((err) =>
       console.warn("⚠️ GitHub release check failed:", err?.message || err)

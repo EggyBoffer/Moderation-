@@ -6,7 +6,7 @@ const {
 } = require("../handlers/timeChannels");
 const { startPresenceTicker } = require("../handlers/presence");
 
-// 🔔 Internal-only GitHub release notifier (support server only)
+
 const { startGitHubReleaseNotifier } = require("../internal/githubReleaseNotifier");
 
 module.exports = {
@@ -18,7 +18,7 @@ module.exports = {
       `📦 Loaded commands: ${[...client.commands.keys()].join(", ") || "(none)"}`
     );
 
-    // Warm invite + vanity caches so "invited by" works on the very next join
+
     client.inviteCache = new Map();
     client.vanityUsesCache = new Map();
 
@@ -27,7 +27,7 @@ module.exports = {
         const invites = await guild.invites.fetch();
         client.inviteCache.set(guild.id, invites);
       } catch {
-        // Missing Manage Server permission or invites unavailable
+  
         client.inviteCache.set(guild.id, null);
       }
 
@@ -37,23 +37,23 @@ module.exports = {
           client.vanityUsesCache.set(guild.id, vanity.uses);
         }
       } catch {
-        // No vanity URL or no permission
+
       }
 
-      // Update member/user/bot count channels (if configured)
+  
       updateCountsForGuild(guild).catch(() => null);
 
-      // Initial time channels update (if configured)
+
       updateTimeChannelsForGuild(guild).catch(() => null);
     }
 
-    // Start global ticker (updates all configured guilds)
+
     startTimeChannelsTicker(client);
 
-    // Start presence updater (bot status)
+
     startPresenceTicker(client);
 
-    // 🔔 Start internal release notifier (only runs if this bot is in the support guild)
+
     try {
       startGitHubReleaseNotifier(client);
     } catch (err) {
