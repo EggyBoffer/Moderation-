@@ -1,6 +1,6 @@
 {
   "name": "discord-mod-bot",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Death Killer21",
   "description": "Moderation+ - A moderation suite built for discord moderators.",
   "main": "src/index.js",
@@ -8,24 +8,18 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-
     "deploy:commands": "node scripts/deploy-guild.js",
     "deploy:commands:global": "node scripts/deploy-global.js",
     "clear:commands:guild": "node scripts/clear-guild.js",
-
     "deploy:bot1:global": "dotenv -e .env -- node scripts/deploy-global.js",
     "deploy:bot2:global": "dotenv -e .env.bot2 -- node scripts/deploy-global.js",
     "deploy:all:global": "npm run deploy:bot1:global && npm run deploy:bot2:global",
-
     "deploy:bot1:guild": "dotenv -e .env -- node scripts/deploy-guild.js",
     "clear:bot1:guild": "dotenv -e .env -- node scripts/clear-guild.js",
-
     "deploy:bot2:support": "dotenv -e .env.bot2 -- node scripts/deploy-guild.js",
     "clear:bot2:support": "dotenv -e .env.bot2 -- node scripts/clear-guild.js",
-
     "deploy:all:commands:guild": "npm run deploy:bot1:guild && npm run deploy:bot2:support",
     "clear:all:commands:guild": "npm run clear:bot1:guild && npm run clear:bot2:support"
-
   },
   "dependencies": {
     "discord.js": "^14.22.1",
