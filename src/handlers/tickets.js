@@ -22,6 +22,7 @@ const REQUEST_CLOSE_MODAL_ID = "tickets:requestCloseModal";
 const PANEL_BTN_ID = "tickets:create";
 const REQUEST_CLOSE_BTN = "tickets:reqclose";
 const CLAIM_BTN = "tickets:claim";
+const ESCALATE_BTN = "tickets:escalate";
 const CLOSE_BTN = "tickets:close";
 
 function truthyEnv(v) {
@@ -46,6 +47,10 @@ function ensureTickets(cfg) {
   const t = cfg.tickets && typeof cfg.tickets === "object" ? cfg.tickets : null;
   if (!t) return null;
 
+  const escalationEnabled = Boolean(t.escalationEnabled);
+  const escalationRoleId = t.escalationRoleId || null;
+  const escalatedCategoryId = t.escalatedCategoryId || null;
+
   return {
     enabled: Boolean(t.enabled),
     categoryId: t.categoryId || null,
@@ -58,6 +63,9 @@ function ensureTickets(cfg) {
     byChannel: t.byChannel && typeof t.byChannel === "object" ? t.byChannel : {},
     panelChannelId: t.panelChannelId || null,
     panelMessageId: t.panelMessageId || null,
+    escalationEnabled,
+    escalationRoleId,
+    escalatedCategoryId,
   };
 }
 
@@ -120,20 +128,16 @@ function buildStaffCloseModal() {
   return modal;
 }
 
-function ticketControlsRow() {
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(REQUEST_CLOSE_BTN).setLabel("Request Close").setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(CLAIM_BTN).setLabel("Claim").setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(CLOSE_BTN).setLabel("Close (Staff)").setStyle(ButtonStyle.Danger)
-  );
-}
-
 function isStaff(member, t) {
   if (!member) return false;
   if (member.permissions?.has(PermissionFlagsBits.Administrator)) return true;
   if (member.permissions?.has(PermissionFlagsBits.ManageGuild)) return true;
   if (t.staffRoleId && member.roles?.cache?.has(t.staffRoleId)) return true;
   return false;
+}
+
+function isEscalationConfigured(t) {
+  return Boolean(t.escalationEnabled && t.escalationRoleId && t.escalatedCategoryId);
 }
 
 function getAllowMultiple(t) {
@@ -157,6 +161,69 @@ async function sendToTicketLog(client, guild, t, payload) {
       : { ...payload, allowedMentions: { parse: [] } };
 
   await channel.send(safe).catch(() => null);
+}
+
+function ticketControlsRow(t, meta, claimedUserTag) {
+  const claimed = Boolean(meta?.claimedBy);
+  const escalatable = isEscalationConfigured(t);
+  const escalated = Boolean(meta?.escalatedAt);
+
+  const reqCloseBtn = new ButtonBuilder()
+    .setCustomId(REQUEST_CLOSE_BTN)
+    .setLabel("Request Close")
+    .setStyle(ButtonStyle.Secondary);
+
+  const claimBtn = new ButtonBuilder()
+    .setCustomId(CLAIM_BTN)
+    .setLabel(claimed ? (claimedUserTag ? `Claimed by ${claimedUserTag}` : "Claimed") : "Claim")
+    .setStyle(ButtonStyle.Secondary)
+    .setDisabled(claimed);
+
+  const closeBtn = new ButtonBuilder()
+    .setCustomId(CLOSE_BTN)
+    .setLabel("Close (Staff)")
+    .setStyle(ButtonStyle.Danger);
+
+  const row = new ActionRowBuilder();
+
+  row.addComponents(reqCloseBtn);
+
+  if (escalatable) {
+    const escBtn = new ButtonBuilder()
+      .setCustomId(ESCALATE_BTN)
+      .setLabel(escalated ? "Escalated" : "Escalate")
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(escalated);
+    row.addComponents(escBtn);
+  }
+
+  row.addComponents(claimBtn, closeBtn);
+
+  return row;
+}
+
+async function updateTicketControlsMessage(channel, t, meta) {
+  const msgs = await channel.messages.fetch({ limit: 15 }).catch(() => null);
+  if (!msgs) return;
+
+  const controls = msgs.find(
+    (m) =>
+      m.author?.id === channel.client.user.id &&
+      Array.isArray(m.components) &&
+      m.components.some((row) =>
+        row.components?.some((c) => [CLAIM_BTN, REQUEST_CLOSE_BTN, CLOSE_BTN].includes(c.customId))
+      )
+  );
+
+  if (!controls) return;
+
+  let claimedTag = null;
+  if (meta.claimedBy) {
+    const u = await channel.client.users.fetch(meta.claimedBy).catch(() => null);
+    claimedTag = u?.username || null;
+  }
+
+  await controls.edit({ components: [ticketControlsRow(t, meta, claimedTag)] }).catch(() => null);
 }
 
 async function createTicketChannel(interaction, t, requestedName, firstMessage) {
@@ -252,6 +319,7 @@ async function createTicketChannel(interaction, t, requestedName, firstMessage) 
       createdAt: new Date().toISOString(),
       closeRequested: null,
       claimedBy: null,
+      escalatedAt: null,
     },
   };
 
@@ -264,7 +332,7 @@ async function createTicketChannel(interaction, t, requestedName, firstMessage) 
         `Hello <@${opener.id}> — thanks for reaching out.`,
         "Describe your issue below and a staff member will respond.",
         "",
-        t.staffRoleId ? `Staff: <@&${t.staffRoleId}>` : null,
+        next.staffRoleId ? `Staff: <@&${next.staffRoleId}>` : null,
         `Ticket ID: \`${ticketId}\``,
         firstMessage ? "" : null,
         firstMessage ? `**User note:**\n${firstMessage}` : null,
@@ -275,7 +343,8 @@ async function createTicketChannel(interaction, t, requestedName, firstMessage) 
     .setColor(0x57f287)
     .setTimestamp(new Date());
 
-  await channel.send({ embeds: [intro], components: [ticketControlsRow()] }).catch(() => null);
+  const metaNew = next.byChannel[channel.id];
+  await channel.send({ embeds: [intro], components: [ticketControlsRow(next, metaNew, null)] }).catch(() => null);
 
   const log = baseEmbed("Ticket Created").setDescription(
     `Channel: <#${channel.id}>\nOpener: <@${opener.id}>\nTicket ID: \`${ticketId}\``
@@ -317,18 +386,23 @@ async function fetchTranscriptText(channel) {
   return lines.join("\n");
 }
 
-async function requestClose(client, interaction, t, meta) {
+async function requestClose(interaction, meta) {
   if (interaction.user.id !== meta.openerId) {
     return replyEphemeral(interaction, "Only the ticket opener can request closure.").catch(() => null);
   }
-
   return interaction.showModal(buildRequestCloseModal()).catch(() => null);
 }
 
 async function claimTicket(client, interaction, t, meta) {
   const member = interaction.member;
-  if (!isStaff(member, t)) {
-    return replyEphemeral(interaction, "Only staff can claim tickets.").catch(() => null);
+  if (!isStaff(member, t)) return replyEphemeral(interaction, "Only staff can claim tickets.").catch(() => null);
+
+  if (meta.claimedBy) {
+    if (meta.claimedBy === interaction.user.id) {
+      return replyEphemeral(interaction, "You already claimed this ticket.").catch(() => null);
+    }
+    const u = await client.users.fetch(meta.claimedBy).catch(() => null);
+    return replyEphemeral(interaction, `Ticket already claimed by **${u?.tag || "someone"}**.`).catch(() => null);
   }
 
   const next = { ...t };
@@ -336,7 +410,9 @@ async function claimTicket(client, interaction, t, meta) {
   next.byChannel[interaction.channelId] = { ...meta, claimedBy: interaction.user.id };
   setTickets(interaction.guildId, next);
 
-  await replyEphemeral(interaction, `🧷 Ticket claimed by <@${interaction.user.id}>.`).catch(() => null);
+  await replyEphemeral(interaction, "✅ Ticket claimed.").catch(() => null);
+  await interaction.channel.send(`🧷 Ticket claimed by <@${interaction.user.id}>.`).catch(() => null);
+  await updateTicketControlsMessage(interaction.channel, next, next.byChannel[interaction.channelId]);
 
   const log = baseEmbed("Ticket Claimed").setDescription(
     `Channel: <#${interaction.channelId}>\nClaimed by: <@${interaction.user.id}>\nTicket ID: \`${meta.ticketId}\``
@@ -345,12 +421,9 @@ async function claimTicket(client, interaction, t, meta) {
   await sendToTicketLog(client, interaction.guild, next, { embeds: [log] });
 }
 
-async function staffClose(client, interaction, t, meta) {
+async function staffClose(interaction, t) {
   const member = interaction.member;
-  if (!isStaff(member, t)) {
-    return replyEphemeral(interaction, "Only staff can close tickets.").catch(() => null);
-  }
-
+  if (!isStaff(member, t)) return replyEphemeral(interaction, "Only staff can close tickets.").catch(() => null);
   return interaction.showModal(buildStaffCloseModal()).catch(() => null);
 }
 
@@ -420,6 +493,60 @@ async function closeTicketFinal(client, interaction, t, meta, reason) {
   await channel.delete().catch(() => null);
 }
 
+async function escalateTicket(client, interaction, t, meta, note) {
+  const member = interaction.member;
+  if (!isStaff(member, t)) return replyEphemeral(interaction, "Only staff can do that.").catch(() => null);
+
+  if (!isEscalationConfigured(t)) {
+    return replyEphemeral(interaction, "Escalation isn’t enabled for tickets in this server.").catch(() => null);
+  }
+
+  if (meta.escalatedAt) {
+    return replyEphemeral(interaction, "This ticket is already escalated.").catch(() => null);
+  }
+
+  const cat =
+    interaction.guild.channels.cache.get(t.escalatedCategoryId) ||
+    (await interaction.guild.channels.fetch(t.escalatedCategoryId).catch(() => null));
+
+  if (!cat || cat.type !== ChannelType.GuildCategory) {
+    return replyEphemeral(interaction, "Escalated tickets category is missing or invalid.").catch(() => null);
+  }
+
+  const me = interaction.guild.members.me;
+  if (!me?.permissions?.has(PermissionFlagsBits.ManageChannels) && !me?.permissions?.has(PermissionFlagsBits.Administrator)) {
+    return replyEphemeral(interaction, "I need Manage Channels permission to move tickets.").catch(() => null);
+  }
+
+  const next = { ...t };
+  next.byChannel = { ...next.byChannel };
+  next.byChannel[interaction.channelId] = { ...meta, escalatedAt: new Date().toISOString() };
+  setTickets(interaction.guildId, next);
+
+  await interaction.channel.setParent(cat.id, { lockPermissions: false }).catch(() => null);
+
+  const ping = t.escalationRoleId ? `<@&${t.escalationRoleId}>` : "";
+  await interaction.channel
+    .send(
+      [
+        `🚨 Ticket escalated by <@${interaction.user.id}>.`,
+        note ? `Note: ${note}` : null,
+        ping ? `Escalation: ${ping}` : null,
+      ].filter(Boolean).join("\n")
+    )
+    .catch(() => null);
+
+  await replyEphemeral(interaction, "✅ Ticket escalated.").catch(() => null);
+
+  await updateTicketControlsMessage(interaction.channel, next, next.byChannel[interaction.channelId]);
+
+  const log = baseEmbed("Ticket Escalated").setDescription(
+    `Channel: <#${interaction.channelId}>\nEscalated by: <@${interaction.user.id}>\nTicket ID: \`${meta.ticketId}\`${note ? `\nNote: ${note}` : ""}`
+  );
+  setActor(log, interaction.user);
+  await sendToTicketLog(client, interaction.guild, next, { embeds: [log] });
+}
+
 async function handleTicketButton(client, interaction) {
   if (!interaction.inGuild()) return;
 
@@ -432,9 +559,10 @@ async function handleTicketButton(client, interaction) {
   const meta = t.byChannel[interaction.channelId];
   if (!meta) return replyEphemeral(interaction, "This doesn’t look like a ticket channel.").catch(() => null);
 
-  if (interaction.customId === REQUEST_CLOSE_BTN) return requestClose(client, interaction, t, meta);
+  if (interaction.customId === REQUEST_CLOSE_BTN) return requestClose(interaction, meta);
   if (interaction.customId === CLAIM_BTN) return claimTicket(client, interaction, t, meta);
-  if (interaction.customId === CLOSE_BTN) return staffClose(client, interaction, t, meta);
+  if (interaction.customId === ESCALATE_BTN) return escalateTicket(client, interaction, t, meta, null);
+  if (interaction.customId === CLOSE_BTN) return staffClose(interaction, t);
 }
 
 async function handleTicketModal(client, interaction) {
@@ -494,16 +622,60 @@ async function handleTicketModal(client, interaction) {
 
   if (interaction.customId === CLOSE_MODAL_ID) {
     const member = interaction.member;
-    if (!isStaff(member, t)) {
-      return replyEphemeral(interaction, "Only staff can close tickets.").catch(() => null);
-    }
+    if (!isStaff(member, t)) return replyEphemeral(interaction, "Only staff can close tickets.").catch(() => null);
 
     const reason = interaction.fields.getTextInputValue("reason") || "No reason provided";
     return closeTicketFinal(client, interaction, t, meta, reason);
   }
 }
 
+async function unclaimTicket(client, interaction) {
+  if (!interaction.inGuild()) return replyEphemeral(interaction, "Use this in a server.").catch(() => null);
+
+  const cfg = getGuildConfig(interaction.guildId);
+  const t = ensureTickets(cfg);
+  if (!t?.enabled) return replyEphemeral(interaction, "Tickets aren’t enabled here.").catch(() => null);
+
+  const meta = t.byChannel[interaction.channelId];
+  if (!meta) return replyEphemeral(interaction, "Use this inside a ticket channel.").catch(() => null);
+
+  const member = interaction.member;
+  if (!isStaff(member, t)) return replyEphemeral(interaction, "Only staff can do that.").catch(() => null);
+
+  if (!meta.claimedBy) return replyEphemeral(interaction, "This ticket is not claimed.").catch(() => null);
+
+  const next = { ...t };
+  next.byChannel = { ...next.byChannel };
+  next.byChannel[interaction.channelId] = { ...meta, claimedBy: null };
+  setTickets(interaction.guildId, next);
+
+  await replyEphemeral(interaction, "✅ Ticket unclaimed.").catch(() => null);
+  await interaction.channel.send(`🪄 Ticket unclaimed by <@${interaction.user.id}>.`).catch(() => null);
+  await updateTicketControlsMessage(interaction.channel, next, next.byChannel[interaction.channelId]);
+
+  const log = baseEmbed("Ticket Unclaimed").setDescription(
+    `Channel: <#${interaction.channelId}>\nUnclaimed by: <@${interaction.user.id}>\nTicket ID: \`${meta.ticketId}\``
+  );
+  setActor(log, interaction.user);
+  await sendToTicketLog(client, interaction.guild, next, { embeds: [log] });
+}
+
+async function escalateTicketCommand(client, interaction, note) {
+  if (!interaction.inGuild()) return replyEphemeral(interaction, "Use this in a server.").catch(() => null);
+
+  const cfg = getGuildConfig(interaction.guildId);
+  const t = ensureTickets(cfg);
+  if (!t?.enabled) return replyEphemeral(interaction, "Tickets aren’t enabled here.").catch(() => null);
+
+  const meta = t.byChannel[interaction.channelId];
+  if (!meta) return replyEphemeral(interaction, "Use this inside a ticket channel.").catch(() => null);
+
+  return escalateTicket(client, interaction, t, meta, note || null);
+}
+
 module.exports = {
   handleTicketButton,
   handleTicketModal,
+  unclaimTicket,
+  escalateTicket: escalateTicketCommand,
 };
