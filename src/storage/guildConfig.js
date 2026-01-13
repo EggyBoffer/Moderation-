@@ -1,18 +1,25 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-const DATA_DIR = path.join(__dirname, "..", "..", "data");
-const FILE_PATH = path.join(DATA_DIR, "guildConfig.json");
-
-function ensureStore() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (!fs.existsSync(FILE_PATH)) fs.writeFileSync(FILE_PATH, JSON.stringify({}), "utf8");
+function getDataDir() {
+  return process.env.DATA_DIR || "/app/data";
 }
 
-function readAll() {
-  ensureStore();
+function ensureDir(dir) {
   try {
-    const raw = fs.readFileSync(FILE_PATH, "utf8");
+    fs.mkdirSync(dir, { recursive: true });
+  } catch {}
+}
+
+function ensureStore(filePath) {
+  ensureDir(path.dirname(filePath));
+  if (!fs.existsSync(filePath)) fs.writeFileSync(filePath, JSON.stringify({}, null, 2) + "\n", "utf8");
+}
+
+function readAll(filePath) {
+  ensureStore(filePath);
+  try {
+    const raw = fs.readFileSync(filePath, "utf8");
     const parsed = JSON.parse(raw || "{}");
     return parsed && typeof parsed === "object" ? parsed : {};
   } catch {
@@ -20,21 +27,27 @@ function readAll() {
   }
 }
 
-function writeAll(obj) {
-  ensureStore();
-  fs.writeFileSync(FILE_PATH, JSON.stringify(obj, null, 2), "utf8");
+function writeAll(filePath, obj) {
+  ensureStore(filePath);
+  fs.writeFileSync(filePath, JSON.stringify(obj, null, 2) + "\n", "utf8");
+}
+
+function getFilePath() {
+  return path.join(getDataDir(), "guildConfig.json");
 }
 
 function getGuildConfig(guildId) {
-  const all = readAll();
+  const filePath = getFilePath();
+  const all = readAll(filePath);
   return all[guildId] || {};
 }
 
 function setGuildConfig(guildId, patch) {
-  const all = readAll();
+  const filePath = getFilePath();
+  const all = readAll(filePath);
   const current = all[guildId] || {};
   all[guildId] = { ...current, ...patch };
-  writeAll(all);
+  writeAll(filePath, all);
   return all[guildId];
 }
 
