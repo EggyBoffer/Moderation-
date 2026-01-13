@@ -12,6 +12,7 @@ const {
 } = require("discord.js");
 
 const { getGuildConfig, setGuildConfig } = require("../storage/guildConfig");
+const { replyEphemeral, deferEphemeral } = require("./interactionReply");
 const { baseEmbed, setActor } = require("./logEmbeds");
 
 const OPEN_MODAL_ID = "tickets:openModal";
@@ -150,7 +151,11 @@ async function sendToTicketLog(client, guild, t, payload) {
 
   if (!channel?.isTextBased?.()) return;
 
-  const safe = typeof payload === "string" ? { content: payload, allowedMentions: { parse: [] } } : { ...payload, allowedMentions: { parse: [] } };
+  const safe =
+    typeof payload === "string"
+      ? { content: payload, allowedMentions: { parse: [] } }
+      : { ...payload, allowedMentions: { parse: [] } };
+
   await channel.send(safe).catch(() => null);
 }
 
@@ -314,7 +319,7 @@ async function fetchTranscriptText(channel) {
 
 async function requestClose(client, interaction, t, meta) {
   if (interaction.user.id !== meta.openerId) {
-    return interaction.reply({ content: "Only the ticket opener can request closure.", flags: 64 }).catch(() => null);
+    return replyEphemeral(interaction, "Only the ticket opener can request closure.").catch(() => null);
   }
 
   return interaction.showModal(buildRequestCloseModal()).catch(() => null);
@@ -323,7 +328,7 @@ async function requestClose(client, interaction, t, meta) {
 async function claimTicket(client, interaction, t, meta) {
   const member = interaction.member;
   if (!isStaff(member, t)) {
-    return interaction.reply({ content: "Only staff can claim tickets.", flags: 64 }).catch(() => null);
+    return replyEphemeral(interaction, "Only staff can claim tickets.").catch(() => null);
   }
 
   const next = { ...t };
@@ -331,7 +336,7 @@ async function claimTicket(client, interaction, t, meta) {
   next.byChannel[interaction.channelId] = { ...meta, claimedBy: interaction.user.id };
   setTickets(interaction.guildId, next);
 
-  await interaction.reply({ content: `🧷 Ticket claimed by <@${interaction.user.id}>.`, flags: 64 }).catch(() => null);
+  await replyEphemeral(interaction, `🧷 Ticket claimed by <@${interaction.user.id}>.`).catch(() => null);
 
   const log = baseEmbed("Ticket Claimed").setDescription(
     `Channel: <#${interaction.channelId}>\nClaimed by: <@${interaction.user.id}>\nTicket ID: \`${meta.ticketId}\``
@@ -343,7 +348,7 @@ async function claimTicket(client, interaction, t, meta) {
 async function staffClose(client, interaction, t, meta) {
   const member = interaction.member;
   if (!isStaff(member, t)) {
-    return interaction.reply({ content: "Only staff can close tickets.", flags: 64 }).catch(() => null);
+    return replyEphemeral(interaction, "Only staff can close tickets.").catch(() => null);
   }
 
   return interaction.showModal(buildStaffCloseModal()).catch(() => null);
@@ -374,7 +379,7 @@ async function dmOpenerOnClose(client, guild, t, meta, reason, transcriptFile) {
 }
 
 async function closeTicketFinal(client, interaction, t, meta, reason) {
-  await interaction.deferReply({ flags: 64 }).catch(() => null);
+  await deferEphemeral(interaction).catch(() => null);
 
   const channel = interaction.channel;
   const guild = interaction.guild;
@@ -425,9 +430,7 @@ async function handleTicketButton(client, interaction) {
   if (interaction.customId === PANEL_BTN_ID) return interaction.showModal(buildOpenModal()).catch(() => null);
 
   const meta = t.byChannel[interaction.channelId];
-  if (!meta) {
-    return interaction.reply({ content: "This doesn’t look like a ticket channel.", flags: 64 }).catch(() => null);
-  }
+  if (!meta) return replyEphemeral(interaction, "This doesn’t look like a ticket channel.").catch(() => null);
 
   if (interaction.customId === REQUEST_CLOSE_BTN) return requestClose(client, interaction, t, meta);
   if (interaction.customId === CLAIM_BTN) return claimTicket(client, interaction, t, meta);
@@ -445,22 +448,20 @@ async function handleTicketModal(client, interaction) {
     const requestedName = interaction.fields.getTextInputValue("title") || "";
     const firstMessage = interaction.fields.getTextInputValue("message") || "";
 
-    await interaction.deferReply({ flags: 64 }).catch(() => null);
+    await deferEphemeral(interaction).catch(() => null);
     const res = await createTicketChannel(interaction, t, requestedName, firstMessage);
     if (!res.ok) return interaction.editReply(res.msg).catch(() => null);
     return interaction.editReply(`✅ Ticket created: <#${res.channelId}>`).catch(() => null);
   }
 
   const meta = t.byChannel[interaction.channelId];
-  if (!meta) {
-    return interaction.reply({ content: "This doesn’t look like a ticket channel.", flags: 64 }).catch(() => null);
-  }
+  if (!meta) return replyEphemeral(interaction, "This doesn’t look like a ticket channel.").catch(() => null);
 
   if (interaction.customId === REQUEST_CLOSE_MODAL_ID) {
     const reason = interaction.fields.getTextInputValue("reason") || "No reason provided";
 
     if (interaction.user.id !== meta.openerId) {
-      return interaction.reply({ content: "Only the ticket opener can request closure.", flags: 64 }).catch(() => null);
+      return replyEphemeral(interaction, "Only the ticket opener can request closure.").catch(() => null);
     }
 
     const next = { ...t };
@@ -472,13 +473,15 @@ async function handleTicketModal(client, interaction) {
     setTickets(interaction.guildId, next);
 
     const ping = t.staffRoleId ? `<@&${t.staffRoleId}>` : "";
-    await interaction.channel.send(
-      [
-        `📌 Close requested by <@${interaction.user.id}>.`,
-        `Reason: ${reason}`,
-        ping ? `Staff: ${ping} (please review and close if appropriate)` : "Staff: please review and close if appropriate",
-      ].join("\n")
-    ).catch(() => null);
+    await interaction.channel
+      .send(
+        [
+          `📌 Close requested by <@${interaction.user.id}>.`,
+          `Reason: ${reason}`,
+          ping ? `Staff: ${ping} (please review and close if appropriate)` : "Staff: please review and close if appropriate",
+        ].join("\n")
+      )
+      .catch(() => null);
 
     const log = baseEmbed("Ticket Close Requested").setDescription(
       `Channel: <#${interaction.channelId}>\nRequested by: <@${interaction.user.id}>\nTicket ID: \`${meta.ticketId}\`\nReason: ${reason}`
@@ -486,13 +489,13 @@ async function handleTicketModal(client, interaction) {
     setActor(log, interaction.user);
     await sendToTicketLog(client, interaction.guild, next, { embeds: [log] });
 
-    return interaction.reply({ content: "✅ Close request sent to staff.", flags: 64 }).catch(() => null);
+    return replyEphemeral(interaction, "✅ Close request sent to staff.").catch(() => null);
   }
 
   if (interaction.customId === CLOSE_MODAL_ID) {
     const member = interaction.member;
     if (!isStaff(member, t)) {
-      return interaction.reply({ content: "Only staff can close tickets.", flags: 64 }).catch(() => null);
+      return replyEphemeral(interaction, "Only staff can close tickets.").catch(() => null);
     }
 
     const reason = interaction.fields.getTextInputValue("reason") || "No reason provided";
