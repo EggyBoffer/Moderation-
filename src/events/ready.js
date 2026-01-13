@@ -14,6 +14,7 @@ module.exports = {
   once: true,
   async execute(client) {
     console.log(`✅ Logged in as ${client.user.tag}`);
+    console.log("DATA_DIR =", process.env.DATA_DIR);
     console.log(
       `📦 Loaded commands: ${[...client.commands.keys()].join(", ") || "(none)"}`
     );

@@ -2,13 +2,11 @@ const { Events, MessageFlags, PermissionFlagsBits } = require("discord.js");
 const { getPanel } = require("../handlers/rolePanels");
 const { sendToGuildLog } = require("../handlers/logChannel");
 const { baseEmbed, setActor } = require("../handlers/logEmbeds");
+const { handleTicketButton, handleTicketModal } = require("../handlers/tickets");
 
 module.exports = {
   name: Events.InteractionCreate,
   async execute(client, interaction) {
-    // -------------------------------
-    // Role Panel Buttons (toggle roles)
-    // -------------------------------
     if (interaction.isButton()) {
       const id = interaction.customId || "";
 
@@ -16,7 +14,7 @@ module.exports = {
         try {
           if (!interaction.inGuild()) return;
 
-          const parts = id.split(":"); // rp:guildId:messageId:roleId
+          const parts = id.split(":");
           const guildId = parts[1];
           const messageId = parts[2];
           const roleId = parts[3];
@@ -43,7 +41,6 @@ module.exports = {
             });
           }
 
-          // Extra safety: role must be in this panel
           const panelRoleIds = (panel.items || []).map((x) => x.roleId);
           if (!panelRoleIds.includes(roleId)) {
             return interaction.reply({
@@ -91,7 +88,6 @@ module.exports = {
           const mode = (panel.mode || "multi").toLowerCase();
 
           if (hasRole) {
-            // Toggle off always allowed
             await member.roles.remove(role.id);
 
             await interaction.reply({
@@ -102,7 +98,6 @@ module.exports = {
             return;
           }
 
-          // If mode is single, remove any other roles from this panel first
           if (mode === "single") {
             const toRemove = panelRoleIds.filter((rid) => rid !== role.id && member.roles.cache.has(rid));
             if (toRemove.length) {
@@ -110,7 +105,6 @@ module.exports = {
             }
           }
 
-          // Then add selected role
           await member.roles.add(role.id);
 
           await interaction.reply({
@@ -121,7 +115,6 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
 
-          // Log it
           try {
             const log = baseEmbed("Role Panel Toggle")
               .setThumbnail(interaction.guild.iconURL({ size: 128 }))
@@ -135,9 +128,7 @@ module.exports = {
 
             setActor(log, interaction.user);
             await sendToGuildLog(client, interaction.guildId, { embeds: [log] });
-          } catch {
-            // ignore log failures
-          }
+          } catch {}
 
           return;
         } catch (err) {
@@ -155,18 +146,34 @@ module.exports = {
                 flags: MessageFlags.Ephemeral,
               });
             }
-          } catch {
-            // ignore follow-up failures
-          }
+          } catch {}
 
           return;
         }
       }
+
+      if (id.startsWith("tickets:")) {
+        try {
+          return await handleTicketButton(client, interaction);
+        } catch (err) {
+          console.error("❌ ticket button error:", err);
+          return interaction.reply({ content: "Something went wrong handling that ticket action.", flags: MessageFlags.Ephemeral }).catch(() => null);
+        }
+      }
     }
 
-    // -------------------------------
-    // Slash commands
-    // -------------------------------
+    if (interaction.isModalSubmit()) {
+      const id = interaction.customId || "";
+      if (id.startsWith("tickets:")) {
+        try {
+          return await handleTicketModal(client, interaction);
+        } catch (err) {
+          console.error("❌ ticket modal error:", err);
+          return interaction.reply({ content: "Something went wrong handling that ticket form.", flags: MessageFlags.Ephemeral }).catch(() => null);
+        }
+      }
+    }
+
     if (!interaction.isChatInputCommand()) return;
 
     const command = client.commands.get(interaction.commandName);
@@ -189,9 +196,7 @@ module.exports = {
         } else {
           await interaction.reply(payload);
         }
-      } catch {
-        // ignore follow-up failures
-      }
+      } catch {}
     }
   },
 };
