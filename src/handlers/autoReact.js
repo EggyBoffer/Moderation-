@@ -1,22 +1,6 @@
 const { PermissionFlagsBits } = require("discord.js");
 const { getGuildConfig, setGuildConfig } = require("../storage/guildConfig");
 
-/**
- * AutoReact config format (per guild)
- *
- * autoReact: {
- *   enabled: true,
- *   rules: {
- *     [channelId]: {
- *       enabled: true,
- *       mode: "any" | "images" | "text" | "both",
- *       emojis: ["✅", "🔥"],
- *       ignoreBots: true
- *     }
- *   }
- * }
- */
-
 function ensureAutoReact(cfg) {
   const ar = cfg.autoReact || {};
   const rulesRaw = ar.rules && typeof ar.rules === "object" ? ar.rules : {};
@@ -24,10 +8,10 @@ function ensureAutoReact(cfg) {
   const rules = {};
   for (const [channelId, r] of Object.entries(rulesRaw)) {
     rules[channelId] = {
-      enabled: r?.enabled !== false, // default true for an existing rule
+      enabled: r?.enabled !== false, 
       mode: typeof r?.mode === "string" ? r.mode : "any",
       emojis: Array.isArray(r?.emojis) && r.emojis.length ? r.emojis : ["✅"],
-      ignoreBots: r?.ignoreBots !== false, // default true
+      ignoreBots: r?.ignoreBots !== false, 
     };
   }
 
@@ -47,7 +31,7 @@ function setAutoReactConfig(guildId, updates) {
     rules: { ...current.rules, ...(updates.rules || {}) },
   };
 
-  // Clean / normalize rules
+  
   const cleaned = {};
   for (const [channelId, r] of Object.entries(next.rules || {})) {
     if (!channelId) continue;
@@ -100,7 +84,7 @@ function shouldReact(mode, message) {
   if (mode === "images") return img;
   if (mode === "text") return text;
   if (mode === "both") return img && text;
-  return true; // any
+  return true; 
 }
 
 async function tryReact(message, emojis) {
@@ -115,7 +99,7 @@ async function tryReact(message, emojis) {
     try {
       await message.react(em);
     } catch {
-      // ignore invalid emoji / missing perms
+      
     }
   }
 }

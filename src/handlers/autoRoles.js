@@ -17,9 +17,9 @@ function ensureAutoRoles(cfg) {
     },
     tenure: {
       enabled: Boolean(tenure.enabled),
-      // rules: [{ days: number, addRoleId: string, removeRoleId?: string|null }]
+      
       rules: Array.isArray(tenure.rules) ? tenure.rules : [],
-      // used to avoid running too frequently (optional)
+      
       lastRunTs: Number.isFinite(tenure.lastRunTs) ? tenure.lastRunTs : 0,
     },
   };
@@ -44,7 +44,7 @@ function botCanManageRole(guild, role) {
   const me = guild.members.me;
   if (!me) return false;
   if (!me.permissions.has(PermissionFlagsBits.ManageRoles)) return false;
-  // bot's highest role must be above target role
+  
   return me.roles.highest.position > role.position;
 }
 
@@ -95,10 +95,6 @@ async function safeRemoveRole(member, roleId, reason) {
   }
 }
 
-/**
- * Assign join role to a member, respecting configured delay.
- * This function does NOT schedule timers — it just applies if due.
- */
 async function maybeApplyJoinRole(client, member) {
   const cfg = getGuildConfig(member.guild.id);
   const ar = ensureAutoRoles(cfg);
@@ -118,7 +114,7 @@ async function maybeApplyJoinRole(client, member) {
   const res = await safeAddRole(member, roleId, "Auto role on join");
   if (!res.ok) return res;
 
-  // Log success (only when actually added, not when already had it)
+  
   if (res.added) {
     const embed = baseEmbed("Auto Role Assigned")
       .setDescription(`**Member:** ${member.user.tag} (ID: ${member.id})\n**Role:** <@&${roleId}>`)
@@ -130,13 +126,6 @@ async function maybeApplyJoinRole(client, member) {
   return res;
 }
 
-/**
- * Catch-up sweep for join roles.
- * Useful after bot restarts / delays.
- *
- * Strategy: if join auto-role is enabled and delay is set,
- * scan members and assign if they are due and don't have the role.
- */
 async function runJoinRoleSweep(client, guild) {
   const cfg = getGuildConfig(guild.id);
   const ar = ensureAutoRoles(cfg);
@@ -146,9 +135,9 @@ async function runJoinRoleSweep(client, guild) {
   const delayMs = ar.join.delayMs || 0;
   if (delayMs <= 0) return { ok: true, skipped: "no-delay" };
 
-  // Requires Guild Members intent to reliably fetch
+  
   try {
-    // This can be expensive on huge guilds; we keep it as a catch-up mechanism.
+    
     await guild.members.fetch();
   } catch {
     return { ok: false, error: "Could not fetch members (missing intent/permissions?)" };
@@ -174,11 +163,6 @@ async function runJoinRoleSweep(client, guild) {
   return { ok: true, applied };
 }
 
-/**
- * Tenure sweep:
- * For each rule (days), add role and optionally remove role for qualifying members.
- * Runs periodically (hourly by default).
- */
 async function runTenureSweep(client, guild) {
   const cfg = getGuildConfig(guild.id);
   const ar = ensureAutoRoles(cfg);
@@ -209,7 +193,7 @@ async function runTenureSweep(client, guild) {
       const requiredMs = Number(rule.days) * 24 * 60 * 60 * 1000;
       if (ageMs < requiredMs) continue;
 
-      // Add role if missing
+      
       const addRes = await safeAddRole(
         member,
         rule.addRoleId,
@@ -217,7 +201,7 @@ async function runTenureSweep(client, guild) {
       );
       if (addRes.ok && addRes.added) promoted++;
 
-      // Remove role if configured and present
+      
       if (rule.removeRoleId) {
         await safeRemoveRole(
           member,
@@ -228,7 +212,7 @@ async function runTenureSweep(client, guild) {
     }
   }
 
-  // store last run timestamp
+  
   setAutoRolesConfig(guild.id, { tenure: { lastRunTs: Date.now() } });
 
   if (promoted > 0) {
@@ -241,17 +225,12 @@ async function runTenureSweep(client, guild) {
   return { ok: true, promoted };
 }
 
-/**
- * Starts the periodic scheduler:
- * - hourly tenure sweep
- * - join-role catch-up sweep (only if delay is configured)
- */
 function startAutoRoleScheduler(client, { tenureEveryMs = 60 * 60 * 1000, joinCatchupEveryMs = 30 * 60 * 1000 } = {}) {
-  // Avoid multiple schedulers
+  
   if (client.__autoRoleSchedulerStarted) return;
   client.__autoRoleSchedulerStarted = true;
 
-  // Tenure sweep
+  
   setInterval(async () => {
     for (const [, guild] of client.guilds.cache) {
       try {
@@ -262,7 +241,7 @@ function startAutoRoleScheduler(client, { tenureEveryMs = 60 * 60 * 1000, joinCa
     }
   }, tenureEveryMs);
 
-  // Join-role catch-up sweep (only needed if delay > 0)
+  
   setInterval(async () => {
     for (const [, guild] of client.guilds.cache) {
       try {

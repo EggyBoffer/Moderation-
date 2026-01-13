@@ -6,14 +6,6 @@ function memberHasAnyRole(member, roleIds) {
   return roleIds.some((id) => member.roles.cache.has(id));
 }
 
-/**
- * Returns true if the member is allowed to use mod commands in this guild.
- * Rules:
- * - Administrator always allowed
- * - ManageGuild always allowed (server managers)
- * - OR has one of the configured mod roles
- * - Optional: also allow ManageMessages (commented, enable if you want)
- */
 function isMod(member, guildId) {
   if (!member || !guildId) return false;
 

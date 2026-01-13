@@ -11,12 +11,11 @@ async function findAuditEntry(guild, type, predicate) {
       if (predicate(entry)) return entry;
     }
   } catch {
-    // Missing View Audit Log permission or transient error
+    
   }
   return null;
 }
 
-// Helps avoid attributing the wrong audit log entry (race conditions happen)
 function isRecent(entry, seconds = 15) {
   if (!entry?.createdTimestamp) return false;
   return Date.now() - entry.createdTimestamp < seconds * 1000;
@@ -24,7 +23,7 @@ function isRecent(entry, seconds = 15) {
 
 module.exports = {
   register(client) {
-    // --- Bans / Unbans ---
+    
     client.on(Events.GuildBanAdd, async (ban) => {
       const guild = ban.guild;
       const user = ban.user;
@@ -67,13 +66,13 @@ module.exports = {
       await sendToGuildLog(client, guild.id, { embeds: [embed] });
     });
 
-    // --- Timeouts (member updates) ---
+    
     client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
       try {
         const oldTs = oldMember.communicationDisabledUntilTimestamp ?? null;
         const newTs = newMember.communicationDisabledUntilTimestamp ?? null;
 
-        // Role changes also come through GuildMemberUpdate — handle timeouts here, roles below.
+        
         if (oldTs !== newTs) {
           const guild = newMember.guild;
           const target = newMember.user;
@@ -103,7 +102,7 @@ module.exports = {
           await sendToGuildLog(client, guild.id, { embeds: [embed] });
         }
 
-        // --- Member role add/remove (also GuildMemberUpdate) ---
+        
         const oldSet = new Set(oldMember.roles.cache.map((r) => r.id));
         const newSet = new Set(newMember.roles.cache.map((r) => r.id));
 
@@ -115,7 +114,7 @@ module.exports = {
         const guild = newMember.guild;
         const user = newMember.user;
 
-        // Best-effort actor attribution via MemberRoleUpdate (not perfect, but usually correct if recent)
+        
         const entry = await findAuditEntry(
           guild,
           AuditLogEvent.MemberRoleUpdate,
@@ -152,7 +151,7 @@ module.exports = {
       }
     });
 
-    // --- Kicks (member remove + audit log) ---
+    
     client.on(Events.GuildMemberRemove, async (member) => {
       try {
         const guild = member.guild;
@@ -163,7 +162,7 @@ module.exports = {
           (e) => e.target?.id === member.id && isRecent(e)
         );
 
-        if (!entry) return; // normal leave handled elsewhere
+        if (!entry) return; 
 
         const targetTag = member.user?.tag ?? "Unknown user";
         const embed = baseEmbed("Member Kicked")
@@ -178,9 +177,9 @@ module.exports = {
       }
     });
 
-    // =========================
-    // Roles: create/update/delete
-    // =========================
+    
+    
+    
 
     client.on(Events.RoleCreate, async (role) => {
       const guild = role.guild;
@@ -243,9 +242,9 @@ module.exports = {
       await sendToGuildLog(client, guild.id, { embeds: [embed] });
     });
 
-    // =========================
-    // Channels: create/update/delete
-    // =========================
+    
+    
+    
 
     client.on(Events.ChannelCreate, async (channel) => {
       if (!channel.guild) return;
@@ -290,7 +289,7 @@ module.exports = {
         changes.push(`Name: \`${oldChannel.name}\` → \`${newChannel.name}\``);
       }
 
-      // Topic exists on some channel types
+      
       const oldTopic = oldChannel.topic ?? null;
       const newTopic = newChannel.topic ?? null;
       if (oldTopic !== newTopic) changes.push("Topic changed");

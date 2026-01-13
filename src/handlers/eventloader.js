@@ -1,7 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-
 function loadEvents(client, eventsDirPath) {
   if (!fs.existsSync(eventsDirPath)) {
     throw new Error(`Events folder not found: ${eventsDirPath}`);
@@ -14,13 +13,11 @@ function loadEvents(client, eventsDirPath) {
     const filePath = path.join(eventsDirPath, file);
     const mod = require(filePath);
 
-
     if (typeof mod.register === "function") {
       mod.register(client);
       loaded.push(file.replace(".js", ""));
       continue;
     }
-
 
     if (!mod?.name || typeof mod.execute !== "function") {
       console.warn(`⚠️ Skipping invalid event file: ${file}`);

@@ -11,7 +11,6 @@ const {
   repairTimeChannelsForGuild,
 } = require("../handlers/timeChannels");
 
-// Discord only allows up to 25 choices per string option.
 const COMMON_TIMEZONES = [
   { name: "UTC", value: "UTC" },
   { name: "Europe/London", value: "Europe/London" },
@@ -55,7 +54,7 @@ function getEntries(cfg) {
 }
 
 async function pokeUpdater(guild) {
-  // Fire-and-forget: let discord.js queue operations.
+  
   updateTimeChannelsForGuild(guild, { force: true }).catch(() => null);
 }
 

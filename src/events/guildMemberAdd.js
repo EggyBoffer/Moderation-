@@ -13,7 +13,7 @@ function renderWelcomeMessage(template, member) {
     ) || null;
 
   return String(template || DEFAULT_WELCOME)
-    .replaceAll("\\n", "\n") // allow admins to type \n in slash command text
+    .replaceAll("\\n", "\n") 
     .replaceAll("{user}", `<@${member.id}>`)
     .replaceAll("{username}", member.user.username)
     .replaceAll("{server}", member.guild.name)
@@ -21,20 +21,18 @@ function renderWelcomeMessage(template, member) {
     .replaceAll("{rules}", rulesChannel ? `<#${rulesChannel.id}>` : "the rules");
 }
 
-// Invite cache lives on the client so it's shared across events/modules
-// client.inviteCache: Map<guildId, Collection<code, invite>>
 async function ensureInviteCache(client, guild) {
   if (!client.inviteCache) client.inviteCache = new Map();
   if (!client.vanityUsesCache) client.vanityUsesCache = new Map();
 
-  // If we already have a snapshot, don't refetch here
+  
   if (client.inviteCache.has(guild.id)) return;
 
   try {
     const invites = await guild.invites.fetch();
     client.inviteCache.set(guild.id, invites);
   } catch {
-    // No perms or not available
+    
     client.inviteCache.set(guild.id, null);
   }
 
@@ -44,7 +42,7 @@ async function ensureInviteCache(client, guild) {
       client.vanityUsesCache.set(guild.id, vanity.uses);
     }
   } catch {
-    // Vanity not enabled or no perms
+    
   }
 }
 
@@ -57,7 +55,7 @@ module.exports = {
   async execute(client, member) {
     const guild = member.guild;
 
-    // Welcome message (if configured)
+    
     try {
       const cfg = getGuildConfig(guild.id);
       const channelId = cfg?.welcomeChannelId;
@@ -74,7 +72,7 @@ module.exports = {
           const welcomeEmbed = new EmbedBuilder()
             .setTitle("Welcome!")
             .setDescription(rendered)
-            .setColor(0x57F287) // Discord-ish green
+            .setColor(0x57F287) 
             .setThumbnail(member.user.displayAvatarURL({ size: 128 }))
             .setAuthor({
               name: guild.name,
@@ -89,10 +87,10 @@ module.exports = {
       console.error("❌ Welcome message failed:", err);
     }
 
-    // Ensure we have *some* baseline cache
+    
     await ensureInviteCache(client, guild);
 
-    // Discord sometimes updates invite uses slightly after the memberAdd event
+    
     await sleep(2000);
 
     let invitedByLine = "**Invited by:** Unknown";
@@ -100,7 +98,7 @@ module.exports = {
 
     const before = client.inviteCache.get(guild.id);
 
-    // Fetch current invites
+    
     let after = null;
     try {
       after = await guild.invites.fetch();
@@ -110,7 +108,7 @@ module.exports = {
       client.inviteCache.set(guild.id, null);
     }
 
-    // Detect used invite by comparing "uses"
+    
     if (before && after) {
       const used = after.find((inv) => {
         const prev = before.get(inv.code);
@@ -128,7 +126,7 @@ module.exports = {
       }
     }
 
-    // If we didn't detect a code, check vanity URL usage
+    
     if (inviteCodeLine === "") {
       const vanityBefore = client.vanityUsesCache?.get(guild.id);
 
@@ -159,7 +157,7 @@ module.exports = {
           `**ID:** ${member.id}\n` +
           `${invitedByLine}${inviteCodeLine}`
       )
-      .setColor(0x57F287) // green for joins
+      .setColor(0x57F287) 
       .setThumbnail(member.user.displayAvatarURL({ size: 128 }))
       .setAuthor({
         name: guild.name,
@@ -169,7 +167,7 @@ module.exports = {
 
     await sendToGuildLog(client, guild.id, { embeds: [embed] });
 
-    // Update member/user/bot count channels (if configured)
+    
     updateCountsForGuild(guild).catch(() => null);
   },
 };

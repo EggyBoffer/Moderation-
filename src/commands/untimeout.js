@@ -65,7 +65,7 @@ module.exports = {
         return interaction.editReply("Untimeout failed. Check permissions/role position.");
       }
 
-      // ✅ record in unified infractions history
+      
       const entry = addUntimeout(interaction.guildId, targetUser.id, interaction.user.id, reasonRaw);
 
       let dmStatus = "✅ DM sent to user.";

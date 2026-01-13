@@ -14,7 +14,7 @@ function ensureAutoResponderConfig(cfg) {
   return {
     enabled: Boolean(current.enabled),
     allowedChannelIds: Array.isArray(current.allowedChannelIds) ? current.allowedChannelIds : [],
-    stopAfterFirst: current.stopAfterFirst !== false, // default true
+    stopAfterFirst: current.stopAfterFirst !== false, 
     triggers: Array.isArray(current.triggers) ? current.triggers : [],
   };
 }
@@ -141,7 +141,7 @@ module.exports = {
         )
         .addSubcommand((sc) => sc.setName("list").setDescription("List triggers"))
 
-        // Per-trigger channels
+        
         .addSubcommand((sc) =>
           sc
             .setName("channel-add")
@@ -200,14 +200,14 @@ module.exports = {
       const cfg = getGuildConfig(interaction.guildId);
       const ar = ensureAutoResponderConfig(cfg);
 
-      // enable
+      
       if (!group && sub === "enable") {
         const enabled = interaction.options.getBoolean("enabled", true);
         setGuildConfig(interaction.guildId, { autoResponder: { ...ar, enabled } });
         return replyEphemeral(interaction, enabled ? "✅ Auto responder enabled." : "✅ Auto responder disabled.");
       }
 
-      // global channels
+      
       if (group === "channels") {
         if (sub === "add") {
           const channel = interaction.options.getChannel("channel", true);
@@ -238,7 +238,7 @@ module.exports = {
         }
       }
 
-      // triggers
+      
       if (group === "trigger") {
         if (sub === "add") {
           const phrase = interaction.options.getString("phrase", true).trim();
@@ -266,7 +266,7 @@ module.exports = {
             match: "contains",
             limitCount: limit,
             limitWindowMs,
-            allowedChannelIds: [], // empty => inherit global
+            allowedChannelIds: [], 
           };
 
           ar.triggers.push(trigger);
@@ -307,7 +307,7 @@ module.exports = {
           );
         }
 
-        // Per-trigger channels
+        
         if (sub === "channel-add") {
           const id = interaction.options.getString("id", true).trim();
           const channel = interaction.options.getChannel("channel", true);

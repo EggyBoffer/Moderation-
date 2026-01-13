@@ -6,7 +6,6 @@ const {
 } = require("../handlers/timeChannels");
 const { startPresenceTicker } = require("../handlers/presence");
 
-
 const { startGitHubReleaseNotifier } = require("../internal/githubReleaseNotifier");
 
 module.exports = {
@@ -18,7 +17,6 @@ module.exports = {
     console.log(
       `📦 Loaded commands: ${[...client.commands.keys()].join(", ") || "(none)"}`
     );
-
 
     client.inviteCache = new Map();
     client.vanityUsesCache = new Map();
@@ -44,16 +42,12 @@ module.exports = {
   
       updateCountsForGuild(guild).catch(() => null);
 
-
       updateTimeChannelsForGuild(guild).catch(() => null);
     }
 
-
     startTimeChannelsTicker(client);
 
-
     startPresenceTicker(client);
-
 
     try {
       startGitHubReleaseNotifier(client);

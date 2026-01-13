@@ -1,33 +1,5 @@
 const { getGuildConfig } = require("../storage/guildConfig");
 
-/**
- * Auto Responder
- *
- * guildConfig.json:
- *   autoResponder: {
- *     enabled: boolean,
- *     allowedChannelIds: string[],  // global restriction; empty => all channels
- *     stopAfterFirst: boolean,
- *     triggers: [
- *       {
- *         id: string,
- *         phrase: string,
- *         response: string,
- *         match: "contains",
- *         limitCount: number,       // 0 = unlimited
- *         limitWindowMs: number,
- *         allowedChannelIds?: string[] // per-trigger restriction; if non-empty overrides global
- *       }
- *     ]
- *   }
- *
- * Response placeholders:
- *   {user} or {mention}  -> mentions message author
- *   {username}           -> author's username
- *   {server}             -> guild name
- */
-
-// key => number[] of timestamps (ms)
 const hitBuckets = new Map();
 
 function normalize(s) {
@@ -38,16 +10,16 @@ function normalize(s) {
 }
 
 function channelAllowedByList(channelId, list) {
-  if (!Array.isArray(list) || list.length === 0) return true; // empty => allow all
+  if (!Array.isArray(list) || list.length === 0) return true; 
   return list.includes(channelId);
 }
 
 function isChannelAllowed(messageChannelId, globalAllowed, triggerAllowed) {
-  // If trigger has a non-empty allowed list, it overrides global.
+  
   if (Array.isArray(triggerAllowed) && triggerAllowed.length > 0) {
     return triggerAllowed.includes(messageChannelId);
   }
-  // Otherwise fall back to global rules
+  
   return channelAllowedByList(messageChannelId, globalAllowed);
 }
 
@@ -55,7 +27,7 @@ function allowByRateLimit(guildId, trigger) {
   const limitCount = Number(trigger?.limitCount || 0);
   const windowMs = Number(trigger?.limitWindowMs || 0);
 
-  // Unlimited / disabled limiter
+  
   if (!Number.isFinite(limitCount) || limitCount <= 0) return true;
   if (!Number.isFinite(windowMs) || windowMs <= 0) return true;
 
@@ -89,10 +61,6 @@ function applyPlaceholders(template, message) {
     .replace(/\{server\}/gi, server);
 }
 
-/**
- * Evaluates a message and (maybe) sends an autoresponse.
- * Returns true if a response was sent.
- */
 async function handleAutoResponse(message) {
   try {
     if (!message?.guildId) return false;
@@ -113,7 +81,7 @@ async function handleAutoResponse(message) {
     for (const trigger of triggers) {
       if (!trigger?.phrase || !trigger?.response) continue;
 
-      // Per-trigger channel restriction (override global)
+      
       if (!isChannelAllowed(message.channelId, ar.allowedChannelIds || [], trigger.allowedChannelIds)) {
         continue;
       }
@@ -121,7 +89,7 @@ async function handleAutoResponse(message) {
       const phraseNorm = normalize(trigger.phrase);
       if (!phraseNorm) continue;
 
-      // Match mode: contains (default)
+      
       const matchOk = contentNorm.includes(phraseNorm);
       if (!matchOk) continue;
 

@@ -30,14 +30,12 @@ async function postToSupportChannel(client, embed) {
   return true;
 }
 
-
 async function checkAndPostDeployVersion(client) {
   const meta = getBotMeta();
   const state = getInternalState();
 
   const currentVersion = String(meta.version || "0.0.0");
   const lastPosted = state.lastPostedRunningVersion;
-
 
   if (lastPosted === currentVersion) return;
 
@@ -63,7 +61,6 @@ async function checkAndPostDeployVersion(client) {
     });
   }
 }
-
 
 async function fetchLatestRelease() {
   const res = await fetch(GITHUB_LATEST_RELEASE_URL, {
@@ -143,7 +140,6 @@ async function checkGitHubReleaseOnce(client) {
 
 function startGitHubReleaseNotifier(client) {
   if (!client.guilds.cache.has(SUPPORT_GUILD_ID)) return;
-
 
   checkAndPostDeployVersion(client).catch((err) =>
     console.warn("⚠️ Deploy notifier failed:", err?.message || err)

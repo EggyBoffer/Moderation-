@@ -34,7 +34,7 @@ module.exports = {
     .addSubcommand((sc) =>
       sc.setName("list").setDescription("List mod roles for this server.")
     )
-    // Only server managers can change mod roles
+    
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
   async execute(interaction) {

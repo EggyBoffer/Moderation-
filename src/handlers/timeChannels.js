@@ -1,19 +1,15 @@
 const { ChannelType, PermissionFlagsBits } = require("discord.js");
 const { getGuildConfig, setGuildConfig } = require("../storage/guildConfig");
 
-// Tick every 5 minutes (stable)
 const TICK_MS = 300_000;
 
-// Prevent concurrent updates per guild (ticker + command collisions)
 const guildLocks = new Map();
 
-// Per-channel rename cooldown (avoid hammering if Discord queues)
-const lastNameAttempt = new Map(); // channelId -> timestamp
-const NAME_ATTEMPT_COOLDOWN_MS = 300_000; // 5 minutes
+const lastNameAttempt = new Map(); 
+const NAME_ATTEMPT_COOLDOWN_MS = 300_000; 
 
-// Throttle updates per guild
 const lastRun = new Map();
-const MIN_INTERVAL_MS = 60_000; // 1 minute minimum between update passes unless forced
+const MIN_INTERVAL_MS = 60_000; 
 
 function safeLabel(s, fallback) {
   const v = String(s || "").trim();
@@ -51,12 +47,8 @@ function buildChannelName(label, timeStr) {
   return name.length > 96 ? name.slice(0, 96) : name;
 }
 
-/**
- * Deduplicate entries so you can’t have multiple entries for the same timezone.
- * Prefer the one that has channelId. Preserve permsApplied flag.
- */
 function dedupeEntries(entries) {
-  const map = new Map(); // tz -> entry
+  const map = new Map(); 
 
   for (const e of entries) {
     const tz = String(e?.timeZone || "").trim();
@@ -77,7 +69,7 @@ function dedupeEntries(entries) {
       continue;
     }
 
-    // Prefer keeping a linked channelId
+    
     if (!existing.channelId && channelId) {
       map.set(tz, {
         timeZone: tz,
@@ -88,12 +80,12 @@ function dedupeEntries(entries) {
       continue;
     }
 
-    // Otherwise keep existing but fill label if missing
+    
     if (!existing.label && label) {
       map.set(tz, { ...existing, label });
     }
 
-    // Preserve permsApplied if any had it
+    
     if (permsApplied && !existing.permsApplied) {
       map.set(tz, { ...map.get(tz), permsApplied: true });
     }
@@ -102,9 +94,6 @@ function dedupeEntries(entries) {
   return [...map.values()];
 }
 
-/**
- * Scan the category for voice channels that match a label (prefix match).
- */
 async function findMatchingChannels(guild, categoryId, label) {
   const normLabel = normalizeLabelForMatch(label);
   if (!normLabel) return [];
@@ -119,19 +108,11 @@ async function findMatchingChannels(guild, categoryId, label) {
     if (n.startsWith(normLabel)) matches.push(c);
   }
 
-  // Newest first
+  
   matches.sort((a, b) => (a.id < b.id ? 1 : -1));
   return matches;
 }
 
-/**
- * IMPORTANT:
- * - NO artificial timeouts here.
- * - discord.js queues & respects rate limits.
- * - Timeouts cause "give up then retry" loops.
- *
- * Returns { channel, permsApplied }.
- */
 async function ensureVoiceTimeChannel(guild, categoryId, entry, name) {
   let ch = null;
 
@@ -145,7 +126,7 @@ async function ensureVoiceTimeChannel(guild, categoryId, entry, name) {
 
   const everyoneRoleId = guild.roles.everyone.id;
 
-  // Create if missing
+  
   if (!ch) {
     ch = await guild.channels
       .create({
@@ -166,12 +147,12 @@ async function ensureVoiceTimeChannel(guild, categoryId, entry, name) {
     return { channel: ch, permsApplied: true };
   }
 
-  // Fix parent only if wrong
+  
   if (categoryId && ch.parentId !== categoryId) {
     await ch.setParent(categoryId).catch(() => null);
   }
 
-  // Permissions: apply ONCE only (major rate-limit saver)
+  
   let permsApplied = Boolean(entry?.permsApplied);
   if (!permsApplied) {
     await ch.permissionOverwrites
@@ -180,7 +161,7 @@ async function ensureVoiceTimeChannel(guild, categoryId, entry, name) {
     permsApplied = true;
   }
 
-  // Rename with cooldown
+  
   if (ch.name !== name) {
     const last = lastNameAttempt.get(ch.id) || 0;
     const now = Date.now();
@@ -193,12 +174,6 @@ async function ensureVoiceTimeChannel(guild, categoryId, entry, name) {
   return { channel: ch, permsApplied };
 }
 
-/**
- * Repair/reconcile:
- * - Dedup entries by timezone
- * - Relink missing channelId by label
- * - Optionally delete duplicates
- */
 async function repairTimeChannelsForGuild(guild, { deleteDuplicates = false } = {}) {
   const cfg = getGuildConfig(guild.id);
   const categoryId = cfg.timeCategoryId;
@@ -298,7 +273,7 @@ async function updateTimeChannelsForGuild(guild, { force = false } = {}) {
 
       const label = safeLabel(e?.label, timeZone);
 
-      // Relink if missing
+      
       let channelId = e.channelId || null;
       if (!channelId) {
         const matches = await findMatchingChannels(guild, categoryId, label);
@@ -349,7 +324,7 @@ function startTimeChannelsTicker(client) {
 
   runAll().catch(() => null);
 
-  // Align to next tick boundary
+  
   const now = Date.now();
   const msToNextTick = TICK_MS - (now % TICK_MS) + 250;
   setTimeout(() => {

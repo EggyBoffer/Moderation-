@@ -15,13 +15,12 @@ const commands = [];
 const commandsPath = path.join(__dirname, "commands");
 const commandFiles = fs.readdirSync(commandsPath).filter((f) => f.endsWith(".js"));
 
-// Track names -> [{ file, index }]
 const seen = new Map();
 
 for (const file of commandFiles) {
   const filePath = path.join(commandsPath, file);
 
-  // Clear require cache so reruns don't keep stale exports
+  
   delete require.cache[require.resolve(filePath)];
 
   const command = require(filePath);
@@ -46,7 +45,6 @@ for (const file of commandFiles) {
   seen.get(name).push({ file, index: idx });
 }
 
-// Detect duplicates BEFORE calling Discord
 const duplicates = [...seen.entries()].filter(([, arr]) => arr.length > 1);
 if (duplicates.length) {
   console.error("❌ Duplicate command names detected (global commands must be unique):");

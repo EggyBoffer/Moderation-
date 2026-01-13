@@ -1,7 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-
 function loadCommands(commandsDirPath) {
   const commands = new Map();
 

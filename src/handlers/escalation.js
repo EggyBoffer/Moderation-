@@ -8,9 +8,9 @@ function ensureEscalation(cfg) {
   const e = cfg.escalation || {};
   return {
     enabled: Boolean(e.enabled),
-    windowMs: Number.isFinite(e.windowMs) ? e.windowMs : 0, // 0 = all time
+    windowMs: Number.isFinite(e.windowMs) ? e.windowMs : 0, 
     resetWarnsOnEscalation: Boolean(e.resetWarnsOnEscalation),
-    // rules: [{ warns: number, action: { type:"timeout", duration:"1h", reason?:string } }]
+    
     rules: Array.isArray(e.rules) ? e.rules : [],
   };
 }
@@ -20,7 +20,7 @@ function toDiscordTimestamp(ms) {
 }
 
 function pickRule(rules, warnCount) {
-  // choose the highest rule that is <= warnCount
+  
   const sorted = rules
     .filter((r) => Number(r?.warns) > 0 && r?.action?.type === "timeout" && r?.action?.duration)
     .sort((a, b) => Number(a.warns) - Number(b.warns));
@@ -46,7 +46,7 @@ async function maybeEscalateOnWarn({ guild, client, targetMember, modUser }) {
   const rule = pickRule(esc.rules, warnCount);
   if (!rule) return { escalated: false, reason: "no-rule" };
 
-  // Apply timeout escalation
+  
   const durationStr = String(rule.action.duration);
   const parsed = parseDurationToMs(durationStr);
   if (!parsed.ok) {
@@ -99,7 +99,7 @@ function setEscalationConfig(guildId, updates) {
   const current = ensureEscalation(cfg);
 
   const next = { ...current, ...updates };
-  // shallow merge to guild config
+  
   setGuildConfig(guildId, { escalation: next });
   return next;
 }

@@ -16,14 +16,14 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.GuildMessageReactions, // ✅ REQUIRED for starboard + reaction features
+    GatewayIntentBits.GuildMessageReactions, 
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildModeration,
   ],
   partials: [
     Partials.Message,
     Partials.Channel,
-    Partials.Reaction,      // ✅ REQUIRED so reaction events can be fetched reliably
+    Partials.Reaction,      
     Partials.GuildMember,
     Partials.User,
   ],

@@ -1,8 +1,6 @@
-// src/handlers/parseDuration.js
-// Parse durations like: 10m, 2h, 3d, 1w, 30s
-// Also supports combos: 1h30m, 2d6h
 
-const MAX_TIMEOUT_MS = 28 * 24 * 60 * 60 * 1000; // Discord max timeout
+
+const MAX_TIMEOUT_MS = 28 * 24 * 60 * 60 * 1000; 
 
 function parseDurationToMs(input) {
   const s = String(input || "").trim().toLowerCase();
@@ -10,7 +8,7 @@ function parseDurationToMs(input) {
     return { ok: false, error: "Duration is required. Examples: 10m, 2h, 3d, 1h30m" };
   }
 
-  // matches tokens like 10m, 2h, 3d, 1w, 30s (including long forms)
+  
   const re = /(\d+)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|week|weeks)/g;
 
   let total = 0;

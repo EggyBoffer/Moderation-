@@ -11,8 +11,8 @@ const { isMod } = require("../handlers/permissions");
 
 const { replyEphemeral, deferEphemeral } = require("../handlers/interactionReply");
 
-const MAX_BULK = 100;          // Discord bulk delete max per call
-const MAX_SCAN = 1000;         // Max messages to scan when filters are used (safety/perf)
+const MAX_BULK = 100;          
+const MAX_SCAN = 1000;         
 const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
 
 function isYoungerThan14Days(msg) {
@@ -83,13 +83,10 @@ module.exports = {
         .setDescription("Reason (logged)")
         .setRequired(false)
     )
-    // Shows in UI as restricted; we STILL enforce our own mod-role check + channel perms
+    
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
-  /**
-   * @param {import("discord.js").ChatInputCommandInteraction} interaction
-   * @param {import("discord.js").Client} client
-   */
+  
   async execute(interaction, client) {
     try {
       if (!interaction.inGuild()) {
@@ -101,8 +98,8 @@ module.exports = {
         return replyEphemeral(interaction, "You must use this command in a text channel!");
       }
 
-      // Optional: restrict to typical text/announcement channels only
-      // (Threads are also text-based; if you want threads purgable, remove this)
+      
+      
       if (
         channel.type !== ChannelType.GuildText &&
         channel.type !== ChannelType.GuildAnnouncement
@@ -121,7 +118,7 @@ module.exports = {
 
       const contains = containsRaw ? containsRaw.toLowerCase().trim() : null;
 
-      const member = interaction.member; // GuildMember
+      const member = interaction.member; 
       const botMember = interaction.guild.members.me;
 
       
@@ -155,11 +152,11 @@ module.exports = {
       let scanned = 0;
 
       if (!hasFilters) {
-        // Fast path: delete last N messages (Discord will skip >14 day ones)
+        
         const res = await channel.bulkDelete(amount, true);
         deletedCount = res.size;
       } else {
-        // Filtered path: scan messages until we collect enough matches
+        
         const matches = [];
         let lastId = null;
 
@@ -177,28 +174,28 @@ module.exports = {
           for (const msg of batch.values()) {
             if (matches.length >= amount) break;
 
-            // Safer default: don't purge pinned messages
+            
             if (msg.pinned) continue;
 
-            // Discord bulk delete limitation
+            
             if (!isYoungerThan14Days(msg)) continue;
 
-            // bots_only
+            
             if (botsOnly && !msg.author?.bot) continue;
 
-            // attachments_only
+            
             if (attachmentsOnly && (!msg.attachments || msg.attachments.size === 0)) continue;
 
-            // contains
+            
             if (contains) {
               const content = (msg.content ?? "").toLowerCase();
               if (!content.includes(contains)) continue;
             }
 
-            // user
+            
             if (user && msg.author?.id !== user.id) continue;
 
-            // role
+            
             if (role) {
               const m = msg.member;
               if (!m || !m.roles.cache.has(role.id)) continue;
@@ -237,7 +234,7 @@ module.exports = {
         `Note: messages older than 14 days cannot be bulk deleted.`
       );
 
-      // Log it
+      
       const embed = new EmbedBuilder()
         .setTitle("Bulk Purge Used!")
         .setDescription(

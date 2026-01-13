@@ -33,7 +33,7 @@ module.exports = {
         .addFields({ name: "Uptime", value: `\`${up}\`` })
         .setFooter({ text: `v${meta.version}` });
 
-      // Uptime is safe to show publicly, but we can keep it ephemeral to reduce spam.
+      
       return replyEphemeral(interaction, { embeds: [embed] });
     } catch (err) {
       console.error("❌ Error running /uptime:", err);

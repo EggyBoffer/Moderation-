@@ -1,31 +1,6 @@
 const { EmbedBuilder, PermissionFlagsBits } = require("discord.js");
 const { getGuildConfig, setGuildConfig } = require("../storage/guildConfig");
 
-/**
- * MULTI-STARBOARD CONFIG (per guild)
- *
- * starboards: {
- *   enabled: true,
- *   boards: {
- *     [boardId]: {
- *       enabled: true,
- *       channelId: "starboardChannelId",
- *       watchChannelIds: ["123", "456"],
- *       emoji: "⭐" OR "<:name:id>",
- *       threshold: 3,
- *       ignoreBots: true,
- *       excludeSelf: true
- *     }
- *   }
- * }
- *
- * starboardIndex: {
- *   [boardId]: {
- *     [sourceMessageId]: { starboardMessageId: "xyz", lastCount: 4 }
- *   }
- * }
- */
-
 function normalizeBoardId(name) {
   return String(name || "")
     .trim()
@@ -36,7 +11,7 @@ function normalizeBoardId(name) {
 }
 
 function ensureMultiStarboards(cfg) {
-  // Migration: if old single config exists as cfg.starboard, wrap into default board
+  
   if (!cfg.starboards && cfg.starboard) {
     const old = cfg.starboard || {};
     cfg.starboards = {
@@ -54,14 +29,14 @@ function ensureMultiStarboards(cfg) {
       },
     };
 
-    // keep existing index if present; otherwise create per-board index
+    
     if (!cfg.starboardIndex || typeof cfg.starboardIndex !== "object") cfg.starboardIndex = {};
     if (!cfg.starboardIndex.default) cfg.starboardIndex.default = {};
 
-    // Persist migration so it sticks
-    setGuildConfig(cfg.guildId || cfg.id || cfg._guildId || undefined, {}); // no-op if unknown
-    // We can’t reliably know guildId from cfg here, so we don’t hard-persist in this function.
-    // The command layer will persist on next config write.
+    
+    setGuildConfig(cfg.guildId || cfg.id || cfg._guildId || undefined, {}); 
+    
+    
   }
 
   const sb = cfg.starboards || {};
@@ -104,7 +79,7 @@ function setStarboardsConfig(guildId, updates) {
     boards: { ...current.boards, ...(updates.boards || {}) },
   };
 
-  // Clean
+  
   const cleaned = {};
   for (const [id, b] of Object.entries(next.boards || {})) {
     if (!id) continue;
@@ -131,8 +106,8 @@ function emojiMatches(reaction, emojiStr) {
   const id = reaction.emoji?.id || "";
 
   if (!cfg) return false;
-  if (cfg === name) return true;           // unicode or custom emoji name
-  if (id && cfg.includes(id)) return true; // "<:x:id>" or "name:id"
+  if (cfg === name) return true;           
+  if (id && cfg.includes(id)) return true; 
   if (id && cfg === id) return true;
   return false;
 }
@@ -174,7 +149,7 @@ function buildStarboardEmbed(message, starCount, boardCfg) {
 
 async function upsertBoardEntry(client, message, boardId, boardCfg, starCount) {
   if (starCount < boardCfg.threshold) {
-    // delete if exists
+    
     const cfg = getGuildConfig(message.guild.id);
     const index = ensureIndex(cfg);
     if (!index[boardId]) index[boardId] = {};
@@ -248,7 +223,7 @@ async function handleStarReaction(client, reaction) {
   const multi = ensureMultiStarboards(cfg);
   if (!multi.enabled) return;
 
-  // For every board that watches this channel and matches emoji, upsert
+  
   for (const [boardId, b] of Object.entries(multi.boards)) {
     if (!b.enabled) continue;
     if (!b.watchChannelIds.includes(message.channel.id)) continue;

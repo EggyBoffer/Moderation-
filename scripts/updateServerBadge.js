@@ -1,4 +1,4 @@
-/* scripts/updateServerBadge.js */
+
 const fs = require("node:fs");
 const path = require("node:path");
 const { Client, GatewayIntentBits } = require("discord.js");
@@ -11,7 +11,7 @@ function requireEnv(name) {
 
 async function getGuildCount(token) {
   const client = new Client({
-    intents: [GatewayIntentBits.Guilds], // minimal intent
+    intents: [GatewayIntentBits.Guilds], 
   });
 
   await client.login(token);
@@ -33,8 +33,8 @@ async function main() {
 
   fs.mkdirSync(outDir, { recursive: true });
 
-  // IMPORTANT: Shields endpoint JSON does NOT allow logo/logoColor/style here.
-  // Keep JSON minimal and put logo/style on the badge URL instead.
+  
+  
   const payload = {
     schemaVersion: 1,
     label: "Servers",

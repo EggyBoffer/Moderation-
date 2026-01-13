@@ -3,7 +3,7 @@ const { Events, AuditLogEvent, EmbedBuilder } = require("discord.js");
 module.exports = {
   name: Events.GuildCreate,
   async execute(client, guild) {
-    // Give Discord a moment to populate audit logs
+    
     await new Promise((r) => setTimeout(r, 1500));
 
     let inviter = null;
@@ -22,7 +22,7 @@ module.exports = {
         if (entry) inviter = entry.executor;
       }
     } catch {
-      // Missing permissions or audit logs unavailable — fail silently
+      
     }
 
     if (!inviter) return;
@@ -57,7 +57,7 @@ module.exports = {
     try {
       await inviter.send({ embeds: [embed] });
     } catch {
-      // User has DMs closed — silently ignore
+      
     }
   },
 };

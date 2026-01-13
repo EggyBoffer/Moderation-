@@ -5,14 +5,11 @@ module.exports = {
     .setName("ping")
     .setDescription("Shows bot latency and API ping"),
 
-  /**
-   * @param {import("discord.js").ChatInputCommandInteraction} interaction
-   * @param {import("discord.js").Client} client
-   */
+  
   async execute(interaction, client) {
     const start = Date.now();
 
-    // Reply first, then edit with timings (more accurate + avoids timeouts)
+    
     await interaction.reply("Pinging...");
 
     const roundTripMs = Date.now() - start;

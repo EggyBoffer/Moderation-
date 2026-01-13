@@ -64,10 +64,10 @@ module.exports = {
 
         await deferEphemeral(interaction);
 
-        // record warn
+        
         const entry = addWarn(interaction.guildId, user.id, interaction.user.id, reason);
 
-        // DM warn (existing behaviour)
+        
         let dmStatus = "✅ DM sent to user.";
         try {
           const dmEmbed = baseEmbed("⚠️ You Have Been Warned")
@@ -89,7 +89,7 @@ module.exports = {
           dmStatus = "⚠️ Could not DM user (DMs closed or blocked).";
         }
 
-        // attempt escalation (optional, per-guild config)
+        
         let escalationLine = "";
         try {
           const guild = interaction.guild;
@@ -111,7 +111,7 @@ module.exports = {
           }
         } catch (e) {
           console.error("❌ escalation on warn failed:", e);
-          // don’t block warn flow
+          
         }
 
         await interaction.editReply(
@@ -122,7 +122,7 @@ module.exports = {
             `${escalationLine}`
         );
 
-        // log warn (and escalation note if triggered)
+        
         const embed = baseEmbed("Warning Issued")
           .setThumbnail(interaction.guild.iconURL({ size: 128 }))
           .setDescription(

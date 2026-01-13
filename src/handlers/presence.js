@@ -1,8 +1,6 @@
 const { ActivityType } = require("discord.js");
 
-const ROTATE_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes (safe)
-
-/* ---------- helpers ---------- */
+const ROTATE_INTERVAL_MS = 10 * 60 * 1000; 
 
 function parseActivityType(type) {
   const t = String(type || "").trim().toLowerCase();
@@ -16,7 +14,7 @@ function parseActivityType(type) {
 function getPresenceMessages(client) {
   const guildCount = client.guilds?.cache?.size ?? 0;
 
-  // Rotation list
+  
   const rawRotate = process.env.PRESENCE_ROTATE;
   if (rawRotate) {
     return rawRotate
@@ -29,12 +27,10 @@ function getPresenceMessages(client) {
       .filter(Boolean);
   }
 
-  // Fallback to single text
+  
   const single = process.env.PRESENCE_TEXT || "/help";
   return [single.replaceAll("{servers}", String(guildCount))];
 }
-
-/* ---------- main ---------- */
 
 function startPresenceTicker(client) {
   if (client._presenceTickerStarted) return;
@@ -58,10 +54,10 @@ function startPresenceTicker(client) {
     });
   };
 
-  // Set immediately
+  
   applyPresence();
 
-  // Rotate safely
+  
   setInterval(applyPresence, ROTATE_INTERVAL_MS);
 }
 

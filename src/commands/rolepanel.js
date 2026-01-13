@@ -24,7 +24,6 @@ const {
   removePanelItem,
 } = require("../handlers/rolePanels");
 
-// CustomId format: rp:<guildId>:<messageId>:<roleId>
 function makeCustomId(guildId, messageId, roleId) {
   return `rp:${guildId}:${messageId}:${roleId}`;
 }
@@ -255,7 +254,7 @@ module.exports = {
 
         const msg = await channel.send({ embeds: [embed], components: [] });
 
-        // mode defaults to multi (normal toggle)
+        
         upsertPanel(interaction.guildId, msg.id, {
           channelId: channel.id,
           embed: { title, description, color, footer },
@@ -288,7 +287,7 @@ module.exports = {
         const updated = setPanelMode(interaction.guildId, messageId, mode);
         if (!updated) return interaction.editReply("Invalid mode. Use `multi` or `single`.");
 
-        // Optionally refresh message so staff see mode reflected via footer/etc. (we won’t auto-edit text here)
+        
         await interaction.editReply(`✅ Panel \`${messageId}\` mode set to **${updated.mode}**.`);
 
         const log = baseEmbed("Role Panel Mode Updated")

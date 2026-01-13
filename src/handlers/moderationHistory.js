@@ -38,8 +38,6 @@ function listEntries(guildId, userId) {
   return cfg.moderationHistory[userId] ?? [];
 }
 
-/* ===== Public helpers ===== */
-
 function addWarn(guildId, userId, modId, reason) {
   return addEntry(guildId, {
     id: makeId(),

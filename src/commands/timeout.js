@@ -83,7 +83,7 @@ module.exports = {
       const liftAt = Date.now() + parsed.ms;
       const liftStamp = toDiscordTimestamp(liftAt);
 
-      // ✅ record in unified infractions history
+      
       const entry = addTimeout(interaction.guildId, targetUser.id, interaction.user.id, {
         reason: reasonRaw,
         durationMs: parsed.ms,

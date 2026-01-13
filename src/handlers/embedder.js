@@ -2,7 +2,7 @@ const { EmbedBuilder } = require("discord.js");
 const { getGuildConfig, setGuildConfig } = require("../storage/guildConfig");
 
 function unescapeNewlines(input) {
-  // Turns "\n" into an actual newline for slash-command text fields
+  
   if (input === null || input === undefined) return input;
   return String(input).replace(/\\n/g, "\n");
 }
@@ -33,7 +33,7 @@ function buildEmbed({
 } = {}) {
   const e = new EmbedBuilder();
 
-  // Apply newline unescape on all text fields
+  
   title = title ? unescapeNewlines(title) : title;
   description = description ? unescapeNewlines(description) : description;
   footer = footer ? unescapeNewlines(footer) : footer;
@@ -68,7 +68,7 @@ function buildEmbed({
 }
 
 function splitFieldString(s) {
-  // "Name | Value | true"
+  
   const parts = String(s || "")
     .split("|")
     .map((p) => p.trim());
@@ -98,12 +98,6 @@ function makeAllowedMentions({ pingMode, roleId } = {}) {
 
   return { parse: [] };
 }
-
-/* =========================
-   Templates (per guild)
-   Stored in guild config:
-     embedTemplates: { [nameLower]: { name, payload } }
-   ========================= */
 
 function ensureTemplates(cfg) {
   if (!cfg.embedTemplates || typeof cfg.embedTemplates !== "object") {
@@ -174,7 +168,7 @@ module.exports = {
   makeAllowedMentions,
   unescapeNewlines,
 
-  // templates
+  
   normalizeTemplateName,
   listTemplates,
   getTemplate,

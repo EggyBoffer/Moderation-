@@ -2,8 +2,8 @@ const fs = require("fs");
 const path = require("path");
 
 function getDataDir() {
-  // Your Railway volume is mounted at /app/data
-  // Allow override for local/dev if you want.
+  
+  
   return process.env.DATA_DIR || "/app/data";
 }
 

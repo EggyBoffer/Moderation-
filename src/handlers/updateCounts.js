@@ -1,7 +1,6 @@
 const { ChannelType, PermissionFlagsBits } = require("discord.js");
 const { getGuildConfig, setGuildConfig } = require("../storage/guildConfig");
 
-// Throttle updates per guild to avoid spam renames when Discord fires events in bursts
 const lastRun = new Map();
 const MIN_INTERVAL_MS = 10_000;
 
@@ -23,7 +22,7 @@ async function ensureVoiceStatChannel(guild, categoryId, channelId, name, everyo
   }
 
   if (!ch) {
-    // Create channel
+    
     ch = await guild.channels.create({
       name,
       type: ChannelType.GuildVoice,
@@ -36,12 +35,12 @@ async function ensureVoiceStatChannel(guild, categoryId, channelId, name, everyo
       ],
     });
   } else {
-    // Ensure correct parent (if category exists)
+    
     if (categoryId && ch.parentId !== categoryId) {
       await ch.setParent(categoryId).catch(() => null);
     }
 
-    // Keep it “display-only”
+    
     await ch.permissionOverwrites
       .edit(everyoneRoleId, {
         Connect: false,
@@ -49,7 +48,7 @@ async function ensureVoiceStatChannel(guild, categoryId, channelId, name, everyo
       })
       .catch(() => null);
 
-    // Rename if needed
+    
     if (ch.name !== name) {
       await ch.setName(name).catch(() => null);
     }
@@ -58,10 +57,6 @@ async function ensureVoiceStatChannel(guild, categoryId, channelId, name, everyo
   return ch;
 }
 
-/**
- * Updates per-guild member count channels.
- * Uses guild.memberCount for total, and fetches member list to get bots/users split.
- */
 async function updateCountsForGuild(guild, { force = false } = {}) {
   const now = Date.now();
   const last = lastRun.get(guild.id) || 0;
@@ -73,17 +68,17 @@ async function updateCountsForGuild(guild, { force = false } = {}) {
   const categoryId = cfg.countsCategoryId;
   if (!categoryId) return;
 
-  // Validate category still exists & is accessible
+  
   const category =
     guild.channels.cache.get(categoryId) ||
     (await guild.channels.fetch(categoryId).catch(() => null));
   if (!category || category.type !== ChannelType.GuildCategory) {
-    // Category missing/deleted or not accessible → don't hard-crash
+    
     console.warn(`⚠️ Counts category missing/invalid for guild ${guild.id}.`);
     return;
   }
 
-  // Bot needs Manage Channels to create/rename channels
+  
   let me = guild.members.me;
   if (!me) me = await guild.members.fetchMe().catch(() => null);
   if (!me?.permissions?.has(PermissionFlagsBits.ManageChannels)) return;
@@ -93,13 +88,13 @@ async function updateCountsForGuild(guild, { force = false } = {}) {
   let bots = 0;
   let humans = 0;
 
-  // Attempt full fetch for accurate split
+  
   try {
     const members = await guild.members.fetch();
     bots = members.filter((m) => m.user?.bot).size;
     humans = members.size - bots;
   } catch {
-    // Fallback to cache (better than forcing bots=0)
+    
     const cached = guild.members.cache;
     if (cached && cached.size > 0) {
       bots = cached.filter((m) => m.user?.bot).size;
@@ -120,7 +115,7 @@ async function updateCountsForGuild(guild, { force = false } = {}) {
   const humansName = makeName(humansLabel, humans);
   const botsName = makeName(botsLabel, bots);
 
-  // Create/update channels safely
+  
   const membersCh = await ensureVoiceStatChannel(
     guild,
     categoryId,
@@ -145,7 +140,7 @@ async function updateCountsForGuild(guild, { force = false } = {}) {
     everyoneRoleId
   );
 
-  // Persist IDs
+  
   setGuildConfig(guild.id, {
     countsMembersChannelId: membersCh.id,
     countsHumansChannelId: humansCh.id,

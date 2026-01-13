@@ -95,7 +95,7 @@ module.exports = {
     .setName("embed")
     .setDescription("Create, send, and template custom embeds")
 
-    // ===== SEND (direct) =====
+    
     .addSubcommand((sc) =>
       sc
         .setName("send")
@@ -157,7 +157,7 @@ module.exports = {
         .addStringOption((opt) => opt.setName("field6").setDescription('Field: "Name | Value | true/false"').setRequired(false))
     )
 
-    // ===== PREVIEW (direct) =====
+    
     .addSubcommand((sc) =>
       sc
         .setName("preview")
@@ -172,7 +172,7 @@ module.exports = {
         .addBooleanOption((opt) => opt.setName("timestamp").setDescription("Add a timestamp").setRequired(false))
     )
 
-    // ===== TEMPLATE SAVE =====
+    
     .addSubcommand((sc) =>
       sc
         .setName("template-save")
@@ -208,7 +208,7 @@ module.exports = {
         .addStringOption((opt) => opt.setName("field6").setDescription('Field: "Name | Value | true/false"').setRequired(false))
     )
 
-    // ===== TEMPLATE SEND =====
+    
     .addSubcommand((sc) =>
       sc
         .setName("template-send")
@@ -244,7 +244,7 @@ module.exports = {
         )
     )
 
-    // ===== TEMPLATE PREVIEW =====
+    
     .addSubcommand((sc) =>
       sc
         .setName("template-preview")
@@ -254,12 +254,12 @@ module.exports = {
         )
     )
 
-    // ===== TEMPLATE LIST =====
+    
     .addSubcommand((sc) =>
       sc.setName("template-list").setDescription("List saved templates")
     )
 
-    // ===== TEMPLATE DELETE =====
+    
     .addSubcommand((sc) =>
       sc
         .setName("template-delete")
@@ -280,7 +280,7 @@ module.exports = {
 
       const sub = interaction.options.getSubcommand(true);
 
-      // ---------- helper: send with ping ----------
+      
       const sendWithPing = async ({ channel, payload }) => {
         const pingMode = interaction.options.getString("ping") || "none";
         const pingRole = interaction.options.getRole("ping_role");
@@ -325,7 +325,7 @@ module.exports = {
         return sent;
       };
 
-      // ===== direct preview =====
+      
       if (sub === "preview") {
         const embed = buildEmbed({
           title: interaction.options.getString("title"),
@@ -340,7 +340,7 @@ module.exports = {
         return replyEphemeral(interaction, { embeds: [embed] });
       }
 
-      // ===== direct send =====
+      
       if (sub === "send") {
         await deferEphemeral(interaction);
 
@@ -357,7 +357,7 @@ module.exports = {
         }
       }
 
-      // ===== template save =====
+      
       if (sub === "template-save") {
         await deferEphemeral(interaction);
 
@@ -371,7 +371,7 @@ module.exports = {
         const res = saveTemplate(interaction.guildId, name, built.payload);
         if (!res.ok) return interaction.editReply(res.error);
 
-        // show preview so you know what you saved
+        
         const { embed, hasEmbedContent } = payloadToEmbed(built.payload);
 
         return interaction.editReply({
@@ -380,7 +380,7 @@ module.exports = {
         });
       }
 
-      // ===== template list =====
+      
       if (sub === "template-list") {
         const names = listTemplates(interaction.guildId);
         if (!names.length) return replyEphemeral(interaction, "No templates saved yet.");
@@ -388,7 +388,7 @@ module.exports = {
         return replyEphemeral(interaction, `**Templates:**\n${names.map((n) => `• \`${n}\``).join("\n")}`);
       }
 
-      // ===== template preview =====
+      
       if (sub === "template-preview") {
         const name = interaction.options.getString("name", true);
         const tpl = getTemplate(interaction.guildId, name);
@@ -400,7 +400,7 @@ module.exports = {
         return replyEphemeral(interaction, { embeds: [embed] });
       }
 
-      // ===== template delete =====
+      
       if (sub === "template-delete") {
         const name = interaction.options.getString("name", true);
         const existed = deleteTemplate(interaction.guildId, name);
@@ -412,7 +412,7 @@ module.exports = {
         );
       }
 
-      // ===== template send =====
+      
       if (sub === "template-send") {
         await deferEphemeral(interaction);
 

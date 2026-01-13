@@ -45,7 +45,7 @@ module.exports = {
     .setName("autorole")
     .setDescription("Configure automatic roles (join + tenure)")
 
-    // Join role
+    
     .addSubcommand((sc) =>
       sc
         .setName("join-enable")
@@ -72,7 +72,7 @@ module.exports = {
       sc.setName("join-clear").setDescription("Clear join auto-role role setting")
     )
 
-    // Tenure roles
+    
     .addSubcommand((sc) =>
       sc
         .setName("tenure-enable")
@@ -117,7 +117,7 @@ module.exports = {
         )
     )
 
-    // Utility
+    
     .addSubcommand((sc) =>
       sc.setName("view").setDescription("View current auto-role configuration")
     )
@@ -137,7 +137,7 @@ module.exports = {
         return replyEphemeral(interaction, "You do not have permission to use this command.");
       }
 
-      // Require Manage Roles for invoker and bot, for safety.
+      
       if (!interaction.member.permissions?.has(PermissionFlagsBits.ManageRoles)) {
         return replyEphemeral(interaction, "You need **Manage Roles** to configure auto roles.");
       }

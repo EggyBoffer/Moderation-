@@ -17,7 +17,7 @@ module.exports = {
 
     await sendToGuildLog(client, member.guild.id, { embeds: [embed] });
 
-    // Update member/user/bot count channels (if configured)
+    
     updateCountsForGuild(member.guild).catch(() => null);
   },
 };

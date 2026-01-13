@@ -1,16 +1,6 @@
 const { PermissionFlagsBits } = require("discord.js");
 const { getGuildConfig } = require("../storage/guildConfig");
 
-/**
- * Enforce per-guild fun command channel restriction.
- *
- * Rules:
- * - If funChannelId is NOT set: allow anywhere
- * - If set: allow only in that channel
- * - Admin / Manage Server bypass
- *
- * Returns: { ok: boolean, reason?: string }
- */
 function canUseFunCommand(interaction) {
   if (!interaction.inGuild()) return { ok: false, reason: "Use this in a server." };
 
@@ -20,7 +10,7 @@ function canUseFunCommand(interaction) {
   const cfg = getGuildConfig(interaction.guildId);
   const funChannelId = cfg.funChannelId;
 
-  if (!funChannelId) return { ok: true }; // unrestricted
+  if (!funChannelId) return { ok: true }; 
 
   if (interaction.channelId === funChannelId) return { ok: true };
 

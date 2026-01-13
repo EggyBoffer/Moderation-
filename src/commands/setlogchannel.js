@@ -13,7 +13,7 @@ module.exports = {
         .setDescription("The channel to send logs to")
         .setRequired(true)
     )
-    // Only allow members with Manage Guild to use it
+    
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
   async execute(interaction) {
@@ -25,7 +25,7 @@ module.exports = {
 
     const channel = interaction.options.getChannel("channel", true);
 
-    // Basic safety: ensure it's a text channel you can send to
+    
     if (!channel?.isTextBased?.() || channel.isDMBased?.()) {
       return replyEphemeral(
         interaction, "Pick a text channel in this server."

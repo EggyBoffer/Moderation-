@@ -2,22 +2,6 @@ const crypto = require("node:crypto");
 
 const { getGuildConfig, setGuildConfig } = require("../storage/guildConfig");
 
-/**
- * Infractions / Moderation History
- *
- * Stored under:
- *   infractions: { [userId]: Array<Entry> }
- *
- * Entry:
- *  { id, type, userId, modId, reason, ts, meta? }
- *
- * Types:
- *  - warn
- *  - timeout
- *  - untimeout
- *  - note
- */
-
 function ensureInfractions(cfg) {
   const next = cfg && typeof cfg === "object" ? { ...cfg } : {};
   if (!next.infractions || typeof next.infractions !== "object") next.infractions = {};
@@ -79,8 +63,6 @@ function removeInfractionById(guildId, id) {
   return removed;
 }
 
-// ===== Warns =====
-
 function addWarn(guildId, userId, modId, reason) {
   return addEntry(guildId, {
     id: makeInfractionId(),
@@ -110,10 +92,8 @@ function clearWarnsForUser(guildId, userId) {
   const remaining = arr.filter((x) => x.type !== "warn");
   cfg.infractions[userId] = remaining;
   saveInfractions(guildId, cfg);
-  return arr.length - remaining.length; // removed count
+  return arr.length - remaining.length; 
 }
-
-// ===== Timeouts =====
 
 function addTimeout(guildId, userId, modId, { reason, durationMs, durationStr, liftAt } = {}) {
   return addEntry(guildId, {
@@ -142,8 +122,6 @@ function addUntimeout(guildId, userId, modId, reason) {
   });
 }
 
-// ===== Notes =====
-
 function addNote(guildId, userId, modId, note) {
   return addEntry(guildId, {
     id: makeInfractionId(),
@@ -159,8 +137,6 @@ function listNotes(guildId, userId) {
   const cfg = ensureInfractions(getGuildConfig(guildId));
   return getUserInfractions(cfg, userId).filter((x) => x.type === "note");
 }
-
-// ===== Unified =====
 
 function listHistory(guildId, userId) {
   const cfg = ensureInfractions(getGuildConfig(guildId));
