@@ -58,12 +58,6 @@ module.exports = {
         .addRoleOption((opt) =>
           opt.setName("staff_role").setDescription("Role that can view/manage tickets").setRequired(true)
         )
-        .addRoleOption((opt) =>
-          opt
-            .setName("admin_role")
-            .setDescription("Role that can use /ticketadmin (optional). If unset, only Manage Server/Admin can.")
-            .setRequired(false)
-        )
         .addChannelOption((opt) =>
           opt
             .setName("log_channel")
@@ -80,6 +74,12 @@ module.exports = {
               { name: "Username (ticket-username)", value: "username" }
             )
             .setRequired(true)
+        )
+        .addRoleOption((opt) =>
+          opt
+            .setName("admin_role")
+            .setDescription("Role that can use /ticketadmin (optional). If unset, only Manage Server/Admin can.")
+            .setRequired(false)
         )
         .addBooleanOption((opt) =>
           opt
@@ -146,9 +146,10 @@ module.exports = {
       if (sub === "setup") {
         const category = interaction.options.getChannel("category", true);
         const staffRole = interaction.options.getRole("staff_role", true);
-        const adminRole = interaction.options.getRole("admin_role") || null;
         const logChannel = interaction.options.getChannel("log_channel", true);
         const naming = interaction.options.getString("naming", true);
+
+        const adminRole = interaction.options.getRole("admin_role") || null;
         const allowMulti = interaction.options.getBoolean("allow_multiple_per_user");
 
         const escalationMode = interaction.options.getString("escalation_mode") || (t.escalationMode || "automatic");
@@ -176,9 +177,9 @@ module.exports = {
             enabled: true,
             categoryId: category.id,
             staffRoleId: staffRole.id,
-            adminRoleId: adminRole ? adminRole.id : (t.adminRoleId || null),
             logChannelId: logChannel.id,
             namingMode: naming,
+            adminRoleId: adminRole ? adminRole.id : (t.adminRoleId || null),
             allowMultiplePerUser:
               typeof allowMulti === "boolean" ? allowMulti : (t.allowMultiplePerUser || false),
             nextNumber,
