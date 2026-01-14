@@ -21,9 +21,7 @@ function buildPanel(guild, title, description, buttonLabel) {
   const embed = new EmbedBuilder()
     .setTitle(title || "Support Tickets")
     .setDescription(
-      normalizeNewlines(
-        description || "Press the button below to open a private support ticket."
-      )
+      normalizeNewlines(description || "Press the button below to open a private support ticket.")
     )
     .setAuthor({
       name: guild.name,
@@ -58,10 +56,13 @@ module.exports = {
             .setRequired(true)
         )
         .addRoleOption((opt) =>
+          opt.setName("staff_role").setDescription("Role that can view/manage tickets").setRequired(true)
+        )
+        .addRoleOption((opt) =>
           opt
-            .setName("staff_role")
-            .setDescription("Role that can view/manage tickets")
-            .setRequired(true)
+            .setName("admin_role")
+            .setDescription("Role that can use /ticketadmin (optional). If unset, only Manage Server/Admin can.")
+            .setRequired(false)
         )
         .addChannelOption((opt) =>
           opt
@@ -145,6 +146,7 @@ module.exports = {
       if (sub === "setup") {
         const category = interaction.options.getChannel("category", true);
         const staffRole = interaction.options.getRole("staff_role", true);
+        const adminRole = interaction.options.getRole("admin_role") || null;
         const logChannel = interaction.options.getChannel("log_channel", true);
         const naming = interaction.options.getString("naming", true);
         const allowMulti = interaction.options.getBoolean("allow_multiple_per_user");
@@ -163,10 +165,7 @@ module.exports = {
             );
           }
           if (escalationMode === "manual" && !escalationManagerRole) {
-            return replyEphemeral(
-              interaction,
-              "Manual escalation requires `escalation_manager_role` so someone can accept it."
-            );
+            return replyEphemeral(interaction, "Manual escalation requires `escalation_manager_role`.");
           }
         }
 
@@ -177,6 +176,7 @@ module.exports = {
             enabled: true,
             categoryId: category.id,
             staffRoleId: staffRole.id,
+            adminRoleId: adminRole ? adminRole.id : (t.adminRoleId || null),
             logChannelId: logChannel.id,
             namingMode: naming,
             allowMultiplePerUser:
@@ -188,7 +188,9 @@ module.exports = {
             panelMessageId: t.panelMessageId || null,
             escalationMode: escalationMode,
             escalationRoleId: escalationRole ? escalationRole.id : (t.escalationRoleId || null),
-            escalationManagerRoleId: escalationManagerRole ? escalationManagerRole.id : (t.escalationManagerRoleId || null),
+            escalationManagerRoleId: escalationManagerRole
+              ? escalationManagerRole.id
+              : (t.escalationManagerRoleId || null),
             escalatedCategoryId: escalatedCategory ? escalatedCategory.id : (t.escalatedCategoryId || null),
           },
         });
@@ -197,6 +199,7 @@ module.exports = {
           "✅ Tickets configured.",
           `Category: <#${category.id}>`,
           `Staff Role: <@&${staffRole.id}>`,
+          `Ticket Admin Role: ${adminRole ? `<@&${adminRole.id}>` : (t.adminRoleId ? `<@&${t.adminRoleId}>` : "Not set")}`,
           `Ticket Logs: <#${logChannel.id}>`,
           `Naming: \`${naming}\``,
         ];
@@ -226,6 +229,7 @@ module.exports = {
           `Enabled: ${t.enabled ? "✅" : "❌"}`,
           `Category: ${t.categoryId ? `<#${t.categoryId}>` : "Not set"}`,
           `Staff Role: ${t.staffRoleId ? `<@&${t.staffRoleId}>` : "Not set"}`,
+          `Ticket Admin Role: ${t.adminRoleId ? `<@&${t.adminRoleId}>` : "Not set"}`,
           `Ticket Logs: ${t.logChannelId ? `<#${t.logChannelId}>` : "Not set"}`,
           `Naming: \`${t.namingMode || "number"}\``,
           `Allow multiple open tickets: ${t.allowMultiplePerUser ? "✅" : "❌"}`,
