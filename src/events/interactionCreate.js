@@ -2,11 +2,24 @@ const { Events, MessageFlags, PermissionFlagsBits } = require("discord.js");
 const { getPanel } = require("../handlers/rolePanels");
 const { sendToGuildLog } = require("../handlers/logChannel");
 const { baseEmbed, setActor } = require("../handlers/logEmbeds");
-const { handleTicketButton, handleTicketModal } = require("../handlers/tickets");
+const { handleTicketInteraction } = require("../handlers/ticketsSystem");
 
 module.exports = {
   name: Events.InteractionCreate,
   async execute(client, interaction) {
+    try {
+      const handledTicket = await handleTicketInteraction(client, interaction);
+      if (handledTicket) return;
+    } catch (err) {
+      console.error("❌ ticket interaction error:", err);
+      try {
+        if (interaction.isRepliable()) {
+          await interaction.reply({ content: "Something went wrong handling tickets.", flags: MessageFlags.Ephemeral });
+        }
+      } catch {}
+      return;
+    }
+
     if (interaction.isButton()) {
       const id = interaction.customId || "";
 
@@ -100,9 +113,7 @@ module.exports = {
 
           if (mode === "single") {
             const toRemove = panelRoleIds.filter((rid) => rid !== role.id && member.roles.cache.has(rid));
-            if (toRemove.length) {
-              await member.roles.remove(toRemove).catch(() => null);
-            }
+            if (toRemove.length) await member.roles.remove(toRemove).catch(() => null);
           }
 
           await member.roles.add(role.id);
@@ -149,27 +160,6 @@ module.exports = {
           } catch {}
 
           return;
-        }
-      }
-
-      if (id.startsWith("tickets:")) {
-        try {
-          return await handleTicketButton(client, interaction);
-        } catch (err) {
-          console.error("❌ ticket button error:", err);
-          return interaction.reply({ content: "Something went wrong handling that ticket action.", flags: MessageFlags.Ephemeral }).catch(() => null);
-        }
-      }
-    }
-
-    if (interaction.isModalSubmit()) {
-      const id = interaction.customId || "";
-      if (id.startsWith("tickets:")) {
-        try {
-          return await handleTicketModal(client, interaction);
-        } catch (err) {
-          console.error("❌ ticket modal error:", err);
-          return interaction.reply({ content: "Something went wrong handling that ticket form.", flags: MessageFlags.Ephemeral }).catch(() => null);
         }
       }
     }
