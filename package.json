@@ -19,7 +19,9 @@
     "clear:commands:guild:all": "npm run clear:commands:guild:bot1 && npm run clear:commands:guild:bot2",
     "clear:commands:global:bot1": "dotenv -e .env -- node scripts/clear-global.js",
     "clear:commands:global:bot2": "dotenv -e .env.bot2 -- node scripts/clear-global.js",
-    "clear:commands:global:all": "npm run clear:commands:global:bot1 && npm run clear:commands:global:bot2"
+    "clear:commands:global:all": "npm run clear:commands:global:bot1 && npm run clear:commands:global:bot2",
+    "list:commands:global:bot1": "dotenv -e .env -- node scripts/list-global.js",
+    "list:commands:global:bot2": "dotenv -e .env.bot2 -- node scripts/list-global.js"
   },
   "dependencies": {
     "discord.js": "^14.22.1",

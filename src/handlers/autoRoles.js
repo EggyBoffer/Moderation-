@@ -9,17 +9,18 @@ function ensureAutoRoles(cfg) {
   const join = ar.join || {};
   const tenure = ar.tenure || {};
 
+  const applied = join.applied && typeof join.applied === "object" ? join.applied : {};
+
   return {
     join: {
       enabled: Boolean(join.enabled),
       roleId: join.roleId || null,
       delayMs: Number.isFinite(join.delayMs) ? join.delayMs : 0,
+      applied,
     },
     tenure: {
       enabled: Boolean(tenure.enabled),
-      
       rules: Array.isArray(tenure.rules) ? tenure.rules : [],
-      
       lastRunTs: Number.isFinite(tenure.lastRunTs) ? tenure.lastRunTs : 0,
     },
   };
@@ -40,11 +41,38 @@ function setAutoRolesConfig(guildId, updates) {
   return next;
 }
 
+function isJoinApplied(ar, memberId) {
+  const applied = ar?.join?.applied;
+  if (!applied || typeof applied !== "object") return false;
+  return Boolean(applied[memberId]);
+}
+
+function markJoinApplied(guildId, memberId) {
+  const cfg = getGuildConfig(guildId);
+  const ar = ensureAutoRoles(cfg);
+
+  if (!ar.join.applied || typeof ar.join.applied !== "object") ar.join.applied = {};
+  ar.join.applied[memberId] = Date.now();
+
+  const keys = Object.keys(ar.join.applied);
+  if (keys.length > 5000) {
+    const entries = keys
+      .map((k) => [k, Number(ar.join.applied[k]) || 0])
+      .sort((a, b) => a[1] - b[1]);
+
+    const removeCount = Math.min(1000, entries.length);
+    for (let i = 0; i < removeCount; i++) {
+      delete ar.join.applied[entries[i][0]];
+    }
+  }
+
+  setGuildConfig(guildId, { autoRoles: ar });
+}
+
 function botCanManageRole(guild, role) {
   const me = guild.members.me;
   if (!me) return false;
   if (!me.permissions.has(PermissionFlagsBits.ManageRoles)) return false;
-  
   return me.roles.highest.position > role.position;
 }
 
@@ -101,6 +129,10 @@ async function maybeApplyJoinRole(client, member) {
   if (!ar.join.enabled) return { ok: true, skipped: "disabled" };
   if (!ar.join.roleId) return { ok: true, skipped: "no-role-set" };
 
+  if (isJoinApplied(ar, member.id)) {
+    return { ok: true, skipped: "already-applied" };
+  }
+
   const roleId = ar.join.roleId;
   const delayMs = ar.join.delayMs || 0;
 
@@ -114,7 +146,10 @@ async function maybeApplyJoinRole(client, member) {
   const res = await safeAddRole(member, roleId, "Auto role on join");
   if (!res.ok) return res;
 
-  
+  if (res.added || res.already) {
+    markJoinApplied(member.guild.id, member.id);
+  }
+
   if (res.added) {
     const embed = baseEmbed("Auto Role Assigned")
       .setDescription(`**Member:** ${member.user.tag} (ID: ${member.id})\n**Role:** <@&${roleId}>`)
@@ -135,9 +170,7 @@ async function runJoinRoleSweep(client, guild) {
   const delayMs = ar.join.delayMs || 0;
   if (delayMs <= 0) return { ok: true, skipped: "no-delay" };
 
-  
   try {
-    
     await guild.members.fetch();
   } catch {
     return { ok: false, error: "Could not fetch members (missing intent/permissions?)" };
@@ -149,13 +182,22 @@ async function runJoinRoleSweep(client, guild) {
   const now = Date.now();
   for (const [, member] of guild.members.cache) {
     if (member.user?.bot) continue;
-    if (member.roles.cache.has(roleId)) continue;
+
+    if (isJoinApplied(ar, member.id)) continue;
+
+    if (member.roles.cache.has(roleId)) {
+      markJoinApplied(guild.id, member.id);
+      continue;
+    }
 
     const joinedAt = member.joinedTimestamp || 0;
     if (!joinedAt) continue;
 
     if (now >= joinedAt + delayMs) {
       const res = await safeAddRole(member, roleId, "Auto role on join (catch-up)");
+      if (res.ok && (res.added || res.already)) {
+        markJoinApplied(guild.id, member.id);
+      }
       if (res.ok && res.added) applied++;
     }
   }
@@ -193,7 +235,6 @@ async function runTenureSweep(client, guild) {
       const requiredMs = Number(rule.days) * 24 * 60 * 60 * 1000;
       if (ageMs < requiredMs) continue;
 
-      
       const addRes = await safeAddRole(
         member,
         rule.addRoleId,
@@ -201,7 +242,6 @@ async function runTenureSweep(client, guild) {
       );
       if (addRes.ok && addRes.added) promoted++;
 
-      
       if (rule.removeRoleId) {
         await safeRemoveRole(
           member,
@@ -212,7 +252,6 @@ async function runTenureSweep(client, guild) {
     }
   }
 
-  
   setAutoRolesConfig(guild.id, { tenure: { lastRunTs: Date.now() } });
 
   if (promoted > 0) {
@@ -225,12 +264,13 @@ async function runTenureSweep(client, guild) {
   return { ok: true, promoted };
 }
 
-function startAutoRoleScheduler(client, { tenureEveryMs = 60 * 60 * 1000, joinCatchupEveryMs = 30 * 60 * 1000 } = {}) {
-  
+function startAutoRoleScheduler(
+  client,
+  { tenureEveryMs = 60 * 60 * 1000, joinCatchupEveryMs = 30 * 60 * 1000 } = {}
+) {
   if (client.__autoRoleSchedulerStarted) return;
   client.__autoRoleSchedulerStarted = true;
 
-  
   setInterval(async () => {
     for (const [, guild] of client.guilds.cache) {
       try {
@@ -241,7 +281,6 @@ function startAutoRoleScheduler(client, { tenureEveryMs = 60 * 60 * 1000, joinCa
     }
   }, tenureEveryMs);
 
-  
   setInterval(async () => {
     for (const [, guild] of client.guilds.cache) {
       try {
@@ -258,7 +297,6 @@ module.exports = {
   setAutoRolesConfig,
   botCanManageRole,
   memberCanManageRole,
-
   maybeApplyJoinRole,
   runJoinRoleSweep,
   runTenureSweep,
