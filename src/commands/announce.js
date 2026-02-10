@@ -56,9 +56,6 @@ module.exports = {
               { name: "No ping", value: "none" }
             )
         )
-        .addRoleOption((opt) =>
-          opt.setName("role").setDescription("Role to ping (required if ping=Role)").setRequired(false)
-        )
         .addStringOption((opt) =>
           opt
             .setName("recurrence")
@@ -85,6 +82,9 @@ module.exports = {
             .setName("message")
             .setDescription("Embed body. Supports \\n and {t:YYYY-MM-DD HH:MM} / {tr:YYYY-MM-DD HH:MM}")
             .setRequired(true)
+        )
+        .addRoleOption((opt) =>
+          opt.setName("role").setDescription("Role to ping (required if ping=Role)").setRequired(false)
         )
         .addStringOption((opt) => opt.setName("title").setDescription("Optional embed title").setRequired(false))
     )
@@ -136,10 +136,10 @@ module.exports = {
       if (!channel.isTextBased()) return replyEphemeral(interaction, "That channel is not text-based.");
 
       const ping = interaction.options.getString("ping", true);
-      const role = interaction.options.getRole("role", false);
       const recurrence = interaction.options.getString("recurrence", true);
       const when = interaction.options.getString("when", true);
       const message = interaction.options.getString("message", true);
+      const role = interaction.options.getRole("role", false);
       const title = interaction.options.getString("title", false) || "";
 
       if (ping === "role" && !role) return replyEphemeral(interaction, "If ping is Role, you must provide a role.");
