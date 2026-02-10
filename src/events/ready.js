@@ -5,6 +5,7 @@ const {
   updateTimeChannelsForGuild,
 } = require("../handlers/timeChannels");
 const { startPresenceTicker } = require("../handlers/presence");
+const { startAnnouncementsTicker } = require("../handlers/announcements");
 
 const { startGitHubReleaseNotifier } = require("../internal/githubReleaseNotifier");
 
@@ -48,6 +49,8 @@ module.exports = {
     startTimeChannelsTicker(client);
 
     startPresenceTicker(client);
+
+    startAnnouncementsTicker(client);
 
     try {
       startGitHubReleaseNotifier(client);
