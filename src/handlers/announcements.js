@@ -60,15 +60,13 @@ function lastDayOfMonthUTC(year, monthIndex0) {
 function computeNextRunFromTime(freq, timeHHMM, state) {
   const t = parseTimeHHMM(timeHHMM);
   if (!t) return null;
+
   const now = new Date(nowMs());
 
-  if (freq === "daily" || freq === "weekly" || freq === "biweekly") {
+  if (freq === "daily" || freq === "weekly" || freq === "biweekly" || freq === "every_ndays") {
     const base = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), t.hour, t.minute, 0));
     if (base.getTime() <= nowMs()) base.setUTCDate(base.getUTCDate() + 1);
-
-    if (freq === "daily") return base.getTime();
-    if (freq === "weekly") return base.getTime();
-    if (freq === "biweekly") return base.getTime();
+    return base.getTime();
   }
 
   if (freq === "monthly") {
@@ -106,6 +104,11 @@ function advanceNextRun(freq, currentNextRunAt, timeHHMM, state) {
   }
   if (freq === "biweekly") {
     base.setUTCDate(base.getUTCDate() + 14);
+    return base.getTime();
+  }
+  if (freq === "every_ndays") {
+    const n = typeof state?.intervalDays === "number" ? state.intervalDays : 1;
+    base.setUTCDate(base.getUTCDate() + Math.max(1, n));
     return base.getTime();
   }
   if (freq === "monthly") {
@@ -297,12 +300,21 @@ function createAnnouncement(guildId, payload) {
 
   const timeHHMM = safeString(payload.timeHHMM).trim();
   const freq = payload.frequency;
-  if (!["daily", "weekly", "biweekly", "monthly"].includes(freq)) return { ok: false, error: "invalid_frequency" };
+
+  if (!["daily", "weekly", "biweekly", "monthly", "every_ndays"].includes(freq)) return { ok: false, error: "invalid_frequency" };
+
+  let intervalDays = 0;
+  if (freq === "every_ndays") {
+    intervalDays = Number(payload.intervalDays);
+    if (!Number.isFinite(intervalDays) || intervalDays < 1 || intervalDays > 365) return { ok: false, error: "invalid_interval_days" };
+  }
+
   const dayOfMonth = new Date(createdAt).getUTCDate();
-  const nextRunAt = computeNextRunFromTime(freq, timeHHMM, { createdAt, dayOfMonth });
+  const nextRunAt = computeNextRunFromTime(freq, timeHHMM, { createdAt, dayOfMonth, intervalDays });
   if (!nextRunAt) return { ok: false, error: "invalid_time" };
 
-  items.push({ ...base, frequency: freq, timeHHMM, nextRunAt, dayOfMonth });
+  const extra = freq === "every_ndays" ? { intervalDays } : {};
+  items.push({ ...base, frequency: freq, timeHHMM, nextRunAt, dayOfMonth, ...extra });
   setGuildAnnouncements(guildId, { ...state, items });
   return { ok: true, id, nextRunAt };
 }

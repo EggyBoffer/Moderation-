@@ -30,6 +30,12 @@ function freqLabel(item) {
   if (item.frequency === "weekly") return "Weekly";
   if (item.frequency === "biweekly") return "Every 2 weeks";
   if (item.frequency === "monthly") return "Monthly";
+  if (item.frequency === "every_ndays") {
+    const n = typeof item.intervalDays === "number" ? item.intervalDays : 0;
+    if (n === 2) return "Every other day";
+    if (n > 0) return `Every ${n} days`;
+    return "Every N days";
+  }
   return item.frequency;
 }
 
@@ -64,6 +70,8 @@ module.exports = {
             .addChoices(
               { name: "One time", value: "once" },
               { name: "Daily", value: "daily" },
+              { name: "Every other day", value: "every_other_day" },
+              { name: "Custom (every N days)", value: "every_ndays" },
               { name: "Weekly", value: "weekly" },
               { name: "Every 2 weeks", value: "biweekly" },
               { name: "Monthly", value: "monthly" }
@@ -82,6 +90,14 @@ module.exports = {
             .setName("message")
             .setDescription("Embed body. Supports \\n and {t:YYYY-MM-DD HH:MM} / {tr:YYYY-MM-DD HH:MM}")
             .setRequired(true)
+        )
+        .addIntegerOption((opt) =>
+          opt
+            .setName("days_between")
+            .setDescription("Used only if recurrence=Custom (every N days). 2 = every other day.")
+            .setRequired(false)
+            .setMinValue(1)
+            .setMaxValue(365)
         )
         .addRoleOption((opt) =>
           opt.setName("role").setDescription("Role to ping (required if ping=Role)").setRequired(false)
@@ -139,10 +155,15 @@ module.exports = {
       const recurrence = interaction.options.getString("recurrence", true);
       const when = interaction.options.getString("when", true);
       const message = interaction.options.getString("message", true);
+      const daysBetween = interaction.options.getInteger("days_between", false);
       const role = interaction.options.getRole("role", false);
       const title = interaction.options.getString("title", false) || "";
 
       if (ping === "role" && !role) return replyEphemeral(interaction, "If ping is Role, you must provide a role.");
+
+      if (recurrence === "every_ndays" && (!daysBetween || daysBetween < 1)) {
+        return replyEphemeral(interaction, "If recurrence is Custom (every N days), you must set days_between (1-365).");
+      }
 
       await deferEphemeral(interaction);
 
@@ -168,22 +189,40 @@ module.exports = {
         return interaction.editReply(`✅ Created announcement **${res.id}** (one-time)\nNext run: ${fmtWhen(res.nextRunAt)}`);
       }
 
-      const res = createAnnouncement(interaction.guildId, {
-        frequency: recurrence,
+      let frequency = recurrence;
+      let intervalDays = 0;
+
+      if (recurrence === "every_other_day") {
+        frequency = "every_ndays";
+        intervalDays = 2;
+      }
+
+      if (recurrence === "every_ndays") {
+        frequency = "every_ndays";
+        intervalDays = daysBetween || 0;
+      }
+
+      const payload = {
+        frequency,
         timeHHMM: when,
         channelId: channel.id,
         pingType: ping,
         pingRoleId: role ? role.id : "",
         title,
         message,
-      });
+      };
+
+      if (frequency === "every_ndays") payload.intervalDays = intervalDays;
+
+      const res = createAnnouncement(interaction.guildId, payload);
 
       if (!res.ok) {
         if (res.error === "invalid_time") return interaction.editReply("❌ Invalid time. Use HH:MM (UTC) for recurring schedules.");
+        if (res.error === "invalid_interval_days") return interaction.editReply("❌ Invalid days_between. Use 1-365.");
         return interaction.editReply("❌ Failed to create announcement.");
       }
 
-      return interaction.editReply(`✅ Created announcement **${res.id}** (${recurrence})\nNext run: ${fmtWhen(res.nextRunAt)}`);
+      return interaction.editReply(`✅ Created announcement **${res.id}** (${freqLabel({ frequency, intervalDays })})\nNext run: ${fmtWhen(res.nextRunAt)}`);
     }
 
     if (sub === "delete") {
